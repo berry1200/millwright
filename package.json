@@ -1,0 +1,23 @@
+{
+  "name": "linux-ros-mcp-bridge",
+  "version": "0.1.0",
+  "description": "Model Context Protocol server for Linux dev workflows and ROS 2 robotics, model-agnostic (Claude, Codex, Gemini).",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "linux-ros-mcp-bridge": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsc --watch"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.11.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.4",
+    "@types/node": "^20.14.0"
+  }
+}
