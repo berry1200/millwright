@@ -93,18 +93,20 @@ TypeScript, `@modelcontextprotocol/sdk`, stdio transport. Files:
 ```
 src/
   index.ts        entrypoint, connects server to stdio transport
-  server.ts       registers all 11 tools with zod schemas
+  server.ts       registers all 13 tools with zod schemas
   job-manager.ts  background process registry (Linux + ROS jobs share this)
-  shell-tools.ts  run_command implementation + blocklist + truncation
+  shell-tools.ts  run_command + blocklist + truncation (exports truncateOutput)
   file-tools.ts   patch_file (exact search/replace file editing)
   ros-tools.ts    list_ros_nodes, get_ros_graph, sample_ros_topic,
-                  start_ros_launch_job, restart_ros_node
+                  start_ros_launch_job, restart_ros_node,
+                  create_ros_package, build_ros_workspace
 ```
 
 Tools currently registered:
 `run_command`, `patch_file`, `start_background_job`, `list_background_jobs`,
 `read_job_logs`, `stop_background_job`, `list_ros_nodes`, `get_ros_graph`,
-`sample_ros_topic`, `start_ros_launch_job`, `restart_ros_node`.
+`sample_ros_topic`, `start_ros_launch_job`, `restart_ros_node`,
+`create_ros_package`, `build_ros_workspace`.
 
 ### Testing done so far
 
@@ -170,6 +172,19 @@ Tools currently registered:
   999` on disk; `list_ros_nodes` returned the deduped `["/turtlesim"]`. Every
   result matched the earlier function-level runs exactly — no discrepancies, so
   no fixes were needed.
+- **ROS workspace tools + full develop loop validated live (2026-07-14)** via
+  `workspace-harness.mjs` against real colcon on ROS 2 Lyrical. `create_ros_package`
+  scaffolded an `ament_cmake` package (`dev_loop_demo`, dep `rclcpp`, node
+  `demo_node`); `build_ros_workspace` built it (`success: true`, ~5.9s, real colcon
+  output). Then the loop: `patch_file` appended a garbage token to `main()` ->
+  `build_ros_workspace` returned `{ success: false, exitCode: 2 }` with the REAL
+  gcc error in `stderr` (`error: expected initializer before 'GARBAGE_TOKEN_ZZZ'`
+  plus the gmake failure chain) -> `patch_file` removed the token ->
+  `build_ros_workspace` succeeded again (incremental, ~0.6s). This run also caught
+  a wrong assumption: Lyrical's `ros2 pkg create` C++ template has NO `return 0;`
+  line (implicit return, `[[maybe_unused]]` params), so the first break anchor
+  didn't match — `patch_file` correctly returned `applied: false` (search not
+  found) instead of silently mis-editing, which is exactly the guardrail it's for.
 
 ## Roadmap (priority order)
 
@@ -188,7 +203,14 @@ Tools currently registered:
    refusal, and inserts replacement text literally (no `$&`/`$1` regex
    expansion). Validated on real files via `patch-harness.mjs` — see
    "Testing done so far".
-3. **Harden `sample_ros_topic` for `max_messages > 1`** (recorded, not
+3. **[DONE 2026-07-14] ROS 2 workspace tools** — `create_ros_package`
+   (wraps `ros2 pkg create`) and `build_ros_workspace` (wraps `colcon
+   build`, bounded + output-truncated like run_command, returning the real
+   compiler errors in `stderr` on failure). With `patch_file` these close
+   the develop loop: scaffold -> edit -> build -> read the compiler errors
+   -> patch -> rebuild. Validated live against real colcon — see "Testing
+   done so far".
+4. **Harden `sample_ros_topic` for `max_messages > 1`** (recorded, not
    yet done). The current loop cold-starts a fresh `ros2 topic echo
    --once` per message with a per-message timeout of `timeout_sec /
    max_messages` — i.e. the budget SHRINKS as you ask for more messages,
@@ -197,15 +219,15 @@ Tools currently registered:
    fragile and slow for multi-message capture. Future fix: a single
    persistent subscription that captures N messages, instead of N cold
    starts. Unvalidated — nothing calls it with `max_messages > 1` yet.
-4. **Make the blocklist a configurable policy** (JSON/YAML), not
+5. **Make the blocklist a configurable policy** (JSON/YAML), not
    hardcoded in `shell-tools.ts`.
-5. **Docker sandboxing for `run_command`** — run the target environment
+6. **Docker sandboxing for `run_command`** — run the target environment
    in a container, bind-mount the working dir, so `apt-get` and system
    changes are contained. This is the real safety layer; the blocklist
    is a stopgap until this lands.
-6. **Gazebo/IsaacSim-specific tools** — `spawn_model`, `reset_pose`,
+7. **Gazebo/IsaacSim-specific tools** — `spawn_model`, `reset_pose`,
    `pause_physics`. Build after ROS layer is verified against turtlesim.
-7. **Dashboard** (Claude Design candidate, not yet) — job status, ROS
+8. **Dashboard** (Claude Design candidate, not yet) — job status, ROS
    graph, log tail. Sequence this AFTER the ROS layer is verified live —
    don't build a UI for data we haven't confirmed is real.
 

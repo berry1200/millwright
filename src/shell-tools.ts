@@ -30,21 +30,21 @@ export async function runCommand(command: string, timeoutMs = 30000, cwd?: strin
     return {
       blocked: false,
       exitCode: 0,
-      stdout: truncate(stdout),
-      stderr: truncate(stderr),
+      stdout: truncateOutput(stdout),
+      stderr: truncateOutput(stderr),
     };
   } catch (err: any) {
     return {
       blocked: false,
       exitCode: err.code ?? 1,
-      stdout: truncate(err.stdout ?? ""),
-      stderr: truncate(err.stderr ?? err.message),
+      stdout: truncateOutput(err.stdout ?? ""),
+      stderr: truncateOutput(err.stderr ?? err.message),
       timedOut: Boolean(err.killed),
     };
   }
 }
 
-function truncate(output: string): string {
+export function truncateOutput(output: string): string {
   const lines = output.split("\n");
   if (lines.length <= MAX_OUTPUT_LINES) return output;
   const head = lines.slice(0, MAX_OUTPUT_LINES / 2);

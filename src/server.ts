@@ -9,6 +9,8 @@ import {
   sampleRosTopic,
   startRosLaunchJob,
   restartRosNode,
+  createRosPackage,
+  buildRosWorkspace,
 } from "./ros-tools.js";
 
 export function buildServer(): McpServer {
@@ -200,6 +202,63 @@ export function buildServer(): McpServer {
     },
     async ({ node_name, grace_period_sec }) => {
       const result = await restartRosNode(node_name, grace_period_sec);
+      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+    }
+  );
+
+  // ---- Layer 3: ROS 2 workspace management (the develop loop) --------------
+
+  server.tool(
+    "create_ros_package",
+    "Scaffolds a new ROS 2 package via `ros2 pkg create` inside a workspace's src/ " +
+      "directory (created if missing). Pair with patch_file to edit the generated " +
+      "sources and build_ros_workspace to compile them.",
+    {
+      package_name: z.string().describe("Name of the new package, e.g. 'my_robot_driver'."),
+      destination_directory: z
+        .string()
+        .describe("Workspace src/ dir to create the package in, e.g. '/home/me/ros2_ws/src'."),
+      build_type: z
+        .enum(["ament_cmake", "ament_python"])
+        .default("ament_cmake")
+        .describe("ament_cmake for C++, ament_python for Python."),
+      dependencies: z
+        .array(z.string())
+        .default([])
+        .describe("Package dependencies, e.g. ['rclcpp', 'std_msgs']."),
+      node_name: z
+        .string()
+        .optional()
+        .describe("Optional: also scaffold a starter node with this name."),
+    },
+    async ({ package_name, destination_directory, build_type, dependencies, node_name }) => {
+      const result = await createRosPackage(
+        package_name,
+        destination_directory,
+        build_type,
+        dependencies,
+        node_name
+      );
+      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+    }
+  );
+
+  server.tool(
+    "build_ros_workspace",
+    "Builds a ROS 2 workspace with `colcon build` (run from the workspace root). " +
+      "Blocking with a hard timeout and truncated output, like run_command: on a " +
+      "compile failure it returns { success: false, exitCode, stderr } with the real " +
+      "compiler errors in stderr, so the model can read them and patch_file the fix.",
+    {
+      workspace_path: z.string().describe("Workspace root (the dir that contains src/)."),
+      packages: z
+        .array(z.string())
+        .default([])
+        .describe("Optional: only build these packages (colcon --packages-select). Empty = all."),
+      timeout_ms: z.number().default(600000).describe("Hard timeout in milliseconds."),
+    },
+    async ({ workspace_path, packages, timeout_ms }) => {
+      const result = await buildRosWorkspace(workspace_path, packages, timeout_ms);
       return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
     }
   );
