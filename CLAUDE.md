@@ -223,6 +223,15 @@ Tools currently registered:
   anywhere in this repo's history, they're stale - Lyrical is correct.
 - **Keep the project inside the Linux filesystem** (`~/projects/...`),
   not under `/mnt/c/...` — meaningfully faster for npm/colcon builds.
+- **Source of truth is a git repo at `~/projects/linux-ros-mcp-bridge`**
+  (git-inited 2026-07-14, canonical in the WSL Linux fs). The earlier habit
+  of hand-copying files between `D:\Linux CLI\project` (Windows) and this
+  dir is RETIRED — that manual sync was a silent-drift risk. `dist/` and
+  `node_modules/` are gitignored; `package-lock.json` IS committed. Edit
+  here directly; from a Windows session the repo is reachable at
+  `\\wsl.localhost\Ubuntu\home\berry_james\projects\linux-ros-mcp-bridge`
+  (Read/Edit over that UNC path works). Any `D:\Linux CLI\...` copies are
+  now stale — do not edit them.
 - Run both Node and `ros2` from inside the WSL Ubuntu terminal. Claude
   Code should also be launched from inside WSL for this project, not
   from Windows, so it has direct access to `ros2` on PATH.
