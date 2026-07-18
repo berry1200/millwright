@@ -2,6 +2,7 @@
 # manifest.json, dist/, node_modules/, package.json, README.md
 .git
 .gitignore
+docs
 src
 tsconfig.json
 CLAUDE.md
