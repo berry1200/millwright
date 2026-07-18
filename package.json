@@ -1,6 +1,6 @@
 {
   "name": "linux-ros-mcp-bridge",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Model Context Protocol server for Linux dev workflows and ROS 2 robotics, model-agnostic (Claude, Codex, Gemini).",
   "license": "Apache-2.0",
   "type": "module",
