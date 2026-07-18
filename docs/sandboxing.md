@@ -1,4 +1,4 @@
-# Docker sandboxing for linux-ros-mcp-bridge — design (APPROVED)
+# Docker sandboxing for millwright — design (APPROVED)
 
 Status: **DESIGN APPROVED 2026-07-18 — not yet implemented.** All four
 open questions answered in review (see Decisions at the bottom).

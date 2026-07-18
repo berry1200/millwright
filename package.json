@@ -1,12 +1,12 @@
 {
-  "name": "linux-ros-mcp-bridge",
-  "version": "0.2.1",
-  "description": "Model Context Protocol server for Linux dev workflows and ROS 2 robotics, model-agnostic (Claude, Codex, Gemini).",
+  "name": "millwright",
+  "version": "0.3.0",
+  "description": "Millwright — an MCP server for Linux and ROS 2 development. Model-agnostic (Claude, Codex, Gemini).",
   "license": "Apache-2.0",
   "type": "module",
   "main": "dist/index.js",
   "bin": {
-    "linux-ros-mcp-bridge": "dist/index.js"
+    "millwright": "dist/index.js"
   },
   "scripts": {
     "build": "tsc",

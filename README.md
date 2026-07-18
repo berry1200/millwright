@@ -1,17 +1,20 @@
-# linux-ros-mcp-bridge
+# Millwright
+
+**Millwright — an MCP server for Linux and ROS 2 development.**
 
 A model-agnostic [MCP](https://modelcontextprotocol.io) server that lets any
 MCP-capable LLM (Claude, Codex, Gemini, …) work as a competent **Linux
 developer** and **ROS 2 robotics developer** through one consistent tool schema.
 It's an execution layer, not a chat wrapper: the model calls tools, the tools
-run real commands, real output comes back, the model reacts.
+run real commands, real output comes back, the model reacts. Like the trade
+it's named for, it installs, maintains, and fixes your machines' software.
 
 > Deeper design notes, decisions, and the full live-testing log live in
 > [`CLAUDE.md`](./CLAUDE.md).
 
 ## Status
 
-**v0.2** — 13 tools over stdio, installable as an MCP Bundle (`.mcpb`).
+**v0.3** — 13 tools over stdio, installable as an MCP Bundle (`.mcpb`).
 Validated live (2026-07) against **ROS 2 Lyrical Luth** + turtlesim on
 **Ubuntu 26.04** (WSL2): every ROS tool, the `patch_file` editor, a full MCP
 JSON-RPC round-trip, and the create → edit → build develop loop were all
@@ -96,7 +99,7 @@ independently, and ROS tools reply with a clear `available: false` message.
   "mcpServers": {
     "linux-ros-bridge": {
       "command": "node",
-      "args": ["/absolute/path/to/linux-ros-mcp-bridge/dist/index.js"],
+      "args": ["/absolute/path/to/millwright/dist/index.js"],
       "env": { "ROS_SETUP_SCRIPT": "/opt/ros/lyrical/setup.bash" }
     }
   }

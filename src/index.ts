@@ -6,7 +6,7 @@ async function main() {
   const server = buildServer();
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  console.error("linux-ros-mcp-bridge running on stdio");
+  console.error("millwright running on stdio");
 }
 
 main().catch((err) => {

@@ -1,9 +1,42 @@
-# linux-ros-mcp-bridge — project context
+# Millwright — project context
 
 Read this file fully before making changes. It captures the research,
 decisions, and reasoning behind this project so you don't have to
 re-derive them. Update this file when you make significant decisions,
 so the next session (human or AI) has the same context.
+
+## Naming (decided 2026-07-18 — do not relitigate)
+
+The product is **Millwright**. Tagline (trademark-compliant, use this
+form): **"Millwright — an MCP server for Linux and ROS 2 development."**
+
+History and rationale, so this doesn't get reopened:
+
+- The original candidate name was **ROSNode**. Rejected for two
+  independent reasons:
+  1. **Trademark.** The official ROS Trademark Rules and Guidelines
+     (ros.org) state the ROS trademarks "should not be used in names of
+     companies, organizations, applications, products, or services
+     without the prior written approval of Open Robotics" — and any
+     permission granted is revocable at their sole discretion. "ROS" is
+     a registered trademark (USPTO 90076684, Open Source Robotics
+     Foundation) covering downloadable robot-control software — exactly
+     this product's category.
+  2. **Collision.** `rosnode` is a literal, existing ROS 1 CLI tool
+     (`rosnode list/info/kill`), and "node" is the core unit of ROS
+     vocabulary — the name was both unsearchable and confusing
+     ("restart the ROSNode node").
+- **Millwright** was chosen for exact semantic fit (the trade that
+  installs, maintains, and fixes industrial machinery — this project's
+  vision in one word), industrial-robotics character without any ROS
+  vocabulary, and a near-empty search space in software.
+- **Rules going forward:** ROS may only ever be used DESCRIPTIVELY
+  ("an MCP server for Linux and ROS 2 development", "works with ROS 2"),
+  never as part of the product name. Style it "ROS 2" — all caps, space
+  before the version number, never plural or possessive.
+- The MCP tool names (`run_command`, `list_ros_nodes`, ...) were
+  deliberately NOT renamed — they're API surface; renaming would break
+  existing configs for zero benefit.
 
 ## Vision
 
@@ -96,7 +129,7 @@ We researched the space before writing code. Findings:
   paths/topic names can't break quoting. Unset = legacy direct mode,
   byte-identical to pre-0.2 behavior.
 
-## Current repo state (v0.2)
+## Current repo state (v0.3)
 
 TypeScript, `@modelcontextprotocol/sdk`, stdio transport. Packaged as an
 MCP Bundle (`manifest.json` manifest_version 0.3, `.mcpbignore`, pack via
@@ -135,7 +168,7 @@ Tools currently registered:
   at that time, since ROS 2 was not yet installed on the dev machine.
 - **ROS layer validated live (2026-07-14)** against ROS 2 **Lyrical** +
   turtlesim on Ubuntu 26.04 (WSL2). The project was built in the Linux fs
-  (`~/projects/linux-ros-mcp-bridge`, Node via nvm — no sudo) and a harness
+  (`~/projects/millwright`, Node via nvm — no sudo) and a harness
   (`harness.mjs`, project root) imported the compiled functions and called
   each one for real against a live turtlesim. Per-function results:
   - `list_ros_nodes` — worked. **Fixed:** `ros2 node list` emitted the same
@@ -352,13 +385,13 @@ The .mcpb installs and runs, but do NOT hand this to strangers yet:
   anywhere in this repo's history, they're stale - Lyrical is correct.
 - **Keep the project inside the Linux filesystem** (`~/projects/...`),
   not under `/mnt/c/...` — meaningfully faster for npm/colcon builds.
-- **Source of truth is a git repo at `~/projects/linux-ros-mcp-bridge`**
+- **Source of truth is a git repo at `~/projects/millwright`**
   (git-inited 2026-07-14, canonical in the WSL Linux fs). The earlier habit
   of hand-copying files between `D:\Linux CLI\project` (Windows) and this
   dir is RETIRED — that manual sync was a silent-drift risk. `dist/` and
   `node_modules/` are gitignored; `package-lock.json` IS committed. Edit
   here directly; from a Windows session the repo is reachable at
-  `\\wsl.localhost\Ubuntu\home\berry_james\projects\linux-ros-mcp-bridge`
+  `\\wsl.localhost\Ubuntu\home\berry_james\projects\millwright`
   (Read/Edit over that UNC path works). Any `D:\Linux CLI\...` copies are
   now stale — do not edit them.
 - Run both Node and `ros2` from inside the WSL Ubuntu terminal. Claude

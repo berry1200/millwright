@@ -15,8 +15,8 @@ import {
 
 export function buildServer(): McpServer {
   const server = new McpServer({
-    name: "linux-ros-mcp-bridge",
-    version: "0.2.1",
+    name: "millwright",
+    version: "0.3.0",
   });
 
   // ---- Layer 1: general Linux execution ----------------------------------

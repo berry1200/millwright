@@ -5,7 +5,7 @@
 export NVM_DIR="$HOME/.nvm"; . "$NVM_DIR/nvm.sh"
 source /opt/ros/lyrical/setup.bash
 export QT_QPA_PLATFORM=offscreen
-cd "$HOME/projects/linux-ros-mcp-bridge"
+cd "$HOME/projects/millwright"
 
 SANDBOX=/tmp/mcp-patch-sandbox.txt
 printf 'alpha\nSECRET = 123\nomega\n' > "$SANDBOX"
