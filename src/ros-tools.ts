@@ -6,6 +6,53 @@ import { truncateOutput } from "./shell-tools.js";
 
 const execFileAsync = promisify(execFile);
 
+// ---- environment adaptation (surfaced as MCPB user_config) -----------------
+// An MCP client like Claude Desktop spawns this server WITHOUT a ROS-sourced
+// shell, so "ros2 is on PATH" - previously a buried assumption - is now
+// explicit config. Empty string counts as unset (Desktop substitutes "" when
+// an optional field is left blank).
+const ROS_SETUP_SCRIPT = process.env.ROS_SETUP_SCRIPT || undefined;
+const ROS_WSL_DISTRO = process.env.ROS_WSL_DISTRO || "Ubuntu";
+const IS_WINDOWS = process.platform === "win32";
+
+/** True when ROS commands run through the sourcing wrapper below (and thus
+ * cwd/mkdir must happen inside the wrapper script, not via Node - a WSL path
+ * like /home/... means nothing to a Windows-side Node process). */
+const rosWrapperActive = Boolean(ROS_SETUP_SCRIPT);
+
+interface RosInvocation {
+  cmd: string;
+  args: string[];
+}
+
+/** Builds the real process invocation for a ros2/colcon command:
+ * - ROS_SETUP_SCRIPT unset: run directly (server was started from a
+ *   ROS-sourced shell, e.g. a manually configured Linux setup). Unchanged
+ *   legacy behavior.
+ * - Set, POSIX host: `bash -c` wrapper that sources the script first.
+ * - Set, Windows host: same wrapper routed into WSL via `wsl.exe -d <distro>`
+ *   (the documented dev environment is Windows 11 + ROS inside WSL2).
+ * The wrapper uses bash positional params ($0 = setup script, then optional
+ * cwd/mkdir dir, then the command) so no value is ever spliced into shell
+ * source - topic names, paths etc. can't break quoting. */
+function rosInvocation(argv: string[], opts: { cwd?: string; mkdir?: string } = {}): RosInvocation {
+  if (!ROS_SETUP_SCRIPT) return { cmd: argv[0], args: argv.slice(1) };
+  let script = 'source "$0" >/dev/null 2>&1; ';
+  const params: string[] = [ROS_SETUP_SCRIPT];
+  if (opts.mkdir) {
+    script += 'mkdir -p "$1" || exit 1; shift; ';
+    params.push(opts.mkdir);
+  } else if (opts.cwd) {
+    script += 'cd "$1" || exit 1; shift; ';
+    params.push(opts.cwd);
+  }
+  script += 'exec "$@"';
+  const bashArgs = ["-c", script, ...params, ...argv];
+  return IS_WINDOWS
+    ? { cmd: "wsl.exe", args: ["-d", ROS_WSL_DISTRO, "-e", "bash", ...bashArgs] }
+    : { cmd: "bash", args: bashArgs };
+}
+
 let ros2AvailableCache: boolean | null = null;
 
 /** Checked lazily and cached - ROS may not be installed (fine, most tools
@@ -13,7 +60,10 @@ let ros2AvailableCache: boolean | null = null;
 export async function isRos2Available(): Promise<boolean> {
   if (ros2AvailableCache !== null) return ros2AvailableCache;
   try {
-    await execFileAsync("ros2", ["--help"], { timeout: 3000 });
+    const inv = rosInvocation(["ros2", "--help"]);
+    // 8s: generous because the sourcing wrapper (and wsl.exe on Windows) adds
+    // startup cost on top of the ros2 CLI's own.
+    await execFileAsync(inv.cmd, inv.args, { timeout: 8000 });
     ros2AvailableCache = true;
   } catch {
     ros2AvailableCache = false;
@@ -22,13 +72,16 @@ export async function isRos2Available(): Promise<boolean> {
 }
 
 const ROS_NOT_AVAILABLE_MSG =
-  "ros2 CLI not found on this machine. Install ROS 2 (e.g. the 'lyrical', 'jazzy' or 'humble' distro) " +
-  "and source /opt/ros/<distro>/setup.bash before ROS tools will work. Linux/general " +
-  "tools in this server work independently of ROS.";
+  "ros2 CLI not found. Either start this server from a ROS-sourced shell, or set the " +
+  "ros_setup_script setting (MCPB install: extension settings; manual: ROS_SETUP_SCRIPT env var) " +
+  "to your distro's setup script, e.g. /opt/ros/lyrical/setup.bash - also works for 'jazzy' or " +
+  "'humble'. On Windows the path is inside your WSL distro (wsl_distro setting, default Ubuntu). " +
+  "Linux/general tools in this server work independently of ROS.";
 
 export async function listRosNodes(filter?: string) {
   if (!(await isRos2Available())) return { available: false, message: ROS_NOT_AVAILABLE_MSG };
-  const { stdout } = await execFileAsync("ros2", ["node", "list"], { timeout: 8000 });
+  const inv = rosInvocation(["ros2", "node", "list"]);
+  const { stdout } = await execFileAsync(inv.cmd, inv.args, { timeout: 15000 });
   // `ros2 node list` can emit the same fully-qualified name more than once
   // (discovery races / multiple DDS participants), so de-duplicate. Verified
   // live on Lyrical: a single turtlesim node was listed twice.
@@ -39,13 +92,13 @@ export async function listRosNodes(filter?: string) {
 
 export async function getRosGraph(includeHidden = false) {
   if (!(await isRos2Available())) return { available: false, message: ROS_NOT_AVAILABLE_MSG };
+  const nodesInv = rosInvocation(["ros2", "node", "list"]);
+  const topicsInv = rosInvocation(
+    includeHidden ? ["ros2", "topic", "list", "--include-hidden-topics"] : ["ros2", "topic", "list"]
+  );
   const [nodesRes, topicsRes] = await Promise.all([
-    execFileAsync("ros2", ["node", "list"], { timeout: 8000 }),
-    execFileAsync(
-      "ros2",
-      includeHidden ? ["topic", "list", "--include-hidden-topics"] : ["topic", "list"],
-      { timeout: 8000 }
-    ),
+    execFileAsync(nodesInv.cmd, nodesInv.args, { timeout: 15000 }),
+    execFileAsync(topicsInv.cmd, topicsInv.args, { timeout: 15000 }),
   ]);
   // De-duplicate for the same reason as listRosNodes (discovery can repeat names).
   const nodes = [...new Set(nodesRes.stdout.split("\n").map((s) => s.trim()).filter(Boolean))];
@@ -85,7 +138,8 @@ export async function sampleRosTopic(
     let stderrBuf = "";
     let settled = false;
 
-    const child = spawn("ros2", ["topic", "echo", topicName], {
+    const inv = rosInvocation(["ros2", "topic", "echo", topicName]);
+    const child = spawn(inv.cmd, inv.args, {
       stdio: ["ignore", "pipe", "pipe"],
     });
 
@@ -180,12 +234,8 @@ export async function startRosLaunchJob(
 ) {
   if (!(await isRos2Available())) return { available: false, message: ROS_NOT_AVAILABLE_MSG };
   const argList = Object.entries(args).map(([k, v]) => `${k}:=${v}`);
-  const job = jobManager.start(
-    "ros2",
-    ["launch", packageName, launchFile, ...argList],
-    `${packageName}/${launchFile}`,
-    rosNodeName
-  );
+  const inv = rosInvocation(["ros2", "launch", packageName, launchFile, ...argList]);
+  const job = jobManager.start(inv.cmd, inv.args, `${packageName}/${launchFile}`, rosNodeName);
   return { available: true, job_id: job.id, status: job.status };
 }
 
@@ -220,7 +270,8 @@ let colconAvailableCache: boolean | null = null;
 export async function isColconAvailable(): Promise<boolean> {
   if (colconAvailableCache !== null) return colconAvailableCache;
   try {
-    await execFileAsync("colcon", ["--help"], { timeout: 5000 });
+    const inv = rosInvocation(["colcon", "--help"]);
+    await execFileAsync(inv.cmd, inv.args, { timeout: 10000 });
     colconAvailableCache = true;
   } catch {
     colconAvailableCache = false;
@@ -229,8 +280,9 @@ export async function isColconAvailable(): Promise<boolean> {
 }
 
 const COLCON_NOT_AVAILABLE_MSG =
-  "colcon not found on this machine. Install ROS 2 dev tools (`ros-dev-tools`, which " +
-  "provides colcon + rosdep) and source your ROS setup before build_ros_workspace will work.";
+  "colcon not found. Install ROS 2 dev tools (`ros-dev-tools`, which provides colcon + " +
+  "rosdep), and either start this server from a ROS-sourced shell or set the " +
+  "ros_setup_script setting so the server can source it automatically.";
 
 /**
  * Wraps `ros2 pkg create`. Creates <packageName> inside destinationDirectory
@@ -246,8 +298,12 @@ export async function createRosPackage(
   nodeName?: string
 ) {
   if (!(await isRos2Available())) return { available: false, message: ROS_NOT_AVAILABLE_MSG };
-  await mkdir(destinationDirectory, { recursive: true });
+  // When the sourcing wrapper is active, mkdir happens inside the wrapper
+  // script - destinationDirectory may be a WSL-internal path the host Node
+  // can't create. Direct mode keeps the old Node-side mkdir.
+  if (!rosWrapperActive) await mkdir(destinationDirectory, { recursive: true });
   const args = [
+    "ros2",
     "pkg",
     "create",
     packageName,
@@ -259,7 +315,8 @@ export async function createRosPackage(
   if (dependencies.length) args.push("--dependencies", ...dependencies);
   if (nodeName) args.push("--node-name", nodeName);
   try {
-    const { stdout, stderr } = await execFileAsync("ros2", args, { timeout: 30000 });
+    const inv = rosInvocation(args, { mkdir: destinationDirectory });
+    const { stdout, stderr } = await execFileAsync(inv.cmd, inv.args, { timeout: 60000 });
     return {
       available: true,
       created: true,
@@ -294,11 +351,14 @@ export async function buildRosWorkspace(
   timeoutMs = 600000
 ) {
   if (!(await isColconAvailable())) return { available: false, message: COLCON_NOT_AVAILABLE_MSG };
-  const args = ["build"];
+  const args = ["colcon", "build"];
   if (packages.length) args.push("--packages-select", ...packages);
   try {
-    const { stdout, stderr } = await execFileAsync("colcon", args, {
-      cwd: workspacePath,
+    // Wrapper active: cd into the workspace inside the wrapper script (the
+    // path may be WSL-internal). Direct mode: plain Node cwd, as before.
+    const inv = rosInvocation(args, { cwd: workspacePath });
+    const { stdout, stderr } = await execFileAsync(inv.cmd, inv.args, {
+      ...(rosWrapperActive ? {} : { cwd: workspacePath }),
       timeout: timeoutMs,
       maxBuffer: 10 * 1024 * 1024,
     });

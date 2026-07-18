@@ -11,10 +11,12 @@ run real commands, real output comes back, the model reacts.
 
 ## Status
 
-**v0.1** — 13 tools over stdio. Validated live (2026-07-14) against **ROS 2
-Lyrical Luth** + turtlesim on **Ubuntu 26.04** (WSL2): every ROS tool, the
-`patch_file` editor, a full MCP JSON-RPC round-trip, and the create → edit →
-build develop loop were all exercised for real, not mocked.
+**v0.2** — 13 tools over stdio, installable as an MCP Bundle (`.mcpb`).
+Validated live (2026-07) against **ROS 2 Lyrical Luth** + turtlesim on
+**Ubuntu 26.04** (WSL2): every ROS tool, the `patch_file` editor, a full MCP
+JSON-RPC round-trip, and the create → edit → build develop loop were all
+exercised for real, not mocked. Other distros (Jazzy, Humble) are supported
+via the `ros_setup_script` setting but have not been validated yet.
 
 ## The develop loop
 
@@ -63,21 +65,74 @@ Node 20+ (built and tested on Node 24). For the ROS tools, run the server from a
 shell that has sourced your ROS 2 setup (e.g. `source /opt/ros/lyrical/setup.bash`)
 so `ros2` and `colcon` are on PATH and node discovery works.
 
-## Connect to Claude Desktop / Claude Code
+## Install as an MCP Bundle (recommended)
+
+Build the bundle and install it with one click — no JSON editing:
+
+```bash
+npm install && npm run build
+npx @anthropic-ai/mcpb pack
+```
+
+Then double-click the generated `.mcpb` (or drag it into Claude Desktop).
+The install dialog prompts for three optional settings:
+
+- **ROS 2 setup script path** — e.g. `/opt/ros/lyrical/setup.bash` (works for
+  `jazzy`/`humble` too). The server sources it before every ROS command, so
+  ROS tools work even though desktop apps never launch from a ROS-sourced
+  shell. On Windows, give the path *inside* your WSL distro — ROS commands
+  are routed through WSL automatically.
+- **WSL distro** (Windows only) — where ROS lives; default `Ubuntu`.
+- **Shell for run_command** — default `bash`; on Windows point it at Git
+  Bash if `bash` isn't on PATH.
+
+Leave the setup script blank if you don't use ROS: the Linux tools work
+independently, and ROS tools reply with a clear `available: false` message.
+
+## Manual config (Claude Code / other MCP clients)
 
 ```json
 {
   "mcpServers": {
     "linux-ros-bridge": {
       "command": "node",
-      "args": ["/absolute/path/to/linux-ros-mcp-bridge/dist/index.js"]
+      "args": ["/absolute/path/to/linux-ros-mcp-bridge/dist/index.js"],
+      "env": { "ROS_SETUP_SCRIPT": "/opt/ros/lyrical/setup.bash" }
     }
   }
 }
 ```
 
-For ROS support, launch the client (or the server) from a ROS-sourced
-environment so the ROS tools can find `ros2`/`colcon`.
+`ROS_SETUP_SCRIPT` is optional — without it, launch the client from a
+ROS-sourced environment so the ROS tools can find `ros2`/`colcon`.
+`ROS_WSL_DISTRO` (default `Ubuntu`) and `SHELL_BIN` (default `bash`) are the
+env equivalents of the other two bundle settings.
+
+## Privacy Policy
+
+This server runs entirely on your machine and makes **no network calls of its
+own** — no telemetry, no analytics, no external services, no phoning home.
+Concretely, here is everything it touches:
+
+- **Filesystem**: `patch_file` reads and writes files at paths the model asks
+  for; `run_command` and background jobs can do whatever the shell user can.
+  Access is limited only by your OS user's permissions — there is currently
+  **no path allowlist or sandbox** (see Safety model and Roadmap).
+- **Process execution**: `run_command`, background jobs, and the ROS tools
+  execute real commands (`bash`, `ros2`, `colcon`) locally, as your user.
+- **ROS 2 data**: the ROS tools read node names, topic names, and message
+  contents from your local ROS 2 domain, and can start/stop ROS processes.
+- **In-memory state**: background-job logs (last 2000 lines per job) are held
+  in server memory only and vanish when the server exits. Nothing is written
+  to disk by the server itself except what tools are explicitly asked to write.
+
+**What leaves your machine**: nothing is transmitted anywhere *by this
+server*. However, every tool result (file contents, command output, ROS topic
+data) is returned over stdio to the MCP client that called it — Claude
+Desktop, Claude Code, or another client — which sends it to its AI model
+provider as part of your conversation. If a topic or file contains sensitive
+data and you ask the model to read it, that content enters the conversation
+like anything else you'd paste into chat.
 
 ## Safety model
 

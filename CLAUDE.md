@@ -85,20 +85,35 @@ We researched the space before writing code. Findings:
   fork bombs). Real isolation is meant to come from running the whole
   server inside a container later (see Roadmap) — the blocklist is a
   backstop, not the primary defense.
+- **Environment adaptation via `rosInvocation()` (added for MCPB).** MCP
+  clients like Claude Desktop spawn the server WITHOUT a ROS-sourced shell,
+  so "ros2 on PATH" became explicit config: if `ROS_SETUP_SCRIPT` is set
+  (user_config `ros_setup_script`), every ros2/colcon command runs through a
+  `bash -c` wrapper that sources it first — routed via `wsl.exe -d
+  $ROS_WSL_DISTRO` on Windows, where `cwd`/`mkdir` also happen inside the
+  wrapper script because WSL paths mean nothing to Windows Node. Values are
+  passed as bash positional params, never spliced into shell source, so
+  paths/topic names can't break quoting. Unset = legacy direct mode,
+  byte-identical to pre-0.2 behavior.
 
-## Current repo state (v0.1)
+## Current repo state (v0.2)
 
-TypeScript, `@modelcontextprotocol/sdk`, stdio transport. Files:
+TypeScript, `@modelcontextprotocol/sdk`, stdio transport. Packaged as an
+MCP Bundle (`manifest.json` manifest_version 0.3, `.mcpbignore`, pack via
+`npx @anthropic-ai/mcpb pack`). Files:
 
 ```
+manifest.json     MCPB manifest: 13 tools, user_config (ros_setup_script,
+                  wsl_distro, shell_bin), privacy_policies
 src/
   index.ts        entrypoint, connects server to stdio transport
   server.ts       registers all 13 tools with zod schemas
   job-manager.ts  background process registry (Linux + ROS jobs share this)
-  shell-tools.ts  run_command + blocklist + truncation (exports truncateOutput)
+  shell-tools.ts  run_command + blocklist + truncation (exports truncateOutput);
+                  shell binary configurable via SHELL_BIN env
   file-tools.ts   patch_file (exact search/replace file editing)
-  ros-tools.ts    list_ros_nodes, get_ros_graph, sample_ros_topic,
-                  start_ros_launch_job, restart_ros_node,
+  ros-tools.ts    rosInvocation() env wrapper + list_ros_nodes, get_ros_graph,
+                  sample_ros_topic, start_ros_launch_job, restart_ros_node,
                   create_ros_package, build_ros_workspace
 ```
 
@@ -203,6 +218,25 @@ Tools currently registered:
   and `sample_ros_topic` called over the wire with `max_messages: 3` returned
   `sampled: 3` clean YAML docs (no trailing `---`), with zero orphan processes
   after the run.
+- **MCPB bundle validated three ways (2026-07-18).** `mcpb validate` passes;
+  packed 6.4MB (1934 files; src/harnesses excluded via `.mcpbignore`).
+  (1) *Legacy direct mode* (ROS_SETUP_SCRIPT unset, WSL): sample-harness
+  re-run — identical results, zero orphans, so manual-config users see no
+  change. (2) *Wrapper mode* (ROS_SETUP_SCRIPT set, node process deliberately
+  UNSOURCED — exactly how a desktop app spawns servers): all ROS tools worked
+  through the sourcing wrapper — node list, hidden-topic graph, sample x3
+  (1.8s), create+colcon build (5.5s), launch multisim, restart. (3) *Windows
+  simulation of Claude Desktop*: extracted the actual packed .mcpb on the
+  Windows side and spawned it with Windows Node using the manifest's literal
+  mcp_config (env substituted as Desktop would). All 13 tools listed;
+  run_command, patch_file (Windows path), list_ros_nodes (via wsl.exe
+  routing!), and sample_ros_topic max_messages:3 -> sampled:3 all correct;
+  ps inside WSL afterward: zero orphaned `topic echo` processes — the kill
+  contract holds through the wsl.exe indirection. Observed: on this machine
+  `bash` on the Windows PATH resolves to the WSL bridge, so run_command
+  output showed the WSL kernel (see Distribution readiness #7). NOT yet
+  verified: the in-Desktop-GUI install click + chat-driven tool calls (GUI
+  interaction only the user can do; installer dialog was launched for them).
 
 ## Roadmap (priority order)
 
@@ -243,17 +277,55 @@ Tools currently registered:
    that dies early (e.g. nonexistent topic) returns
    `process_exited_early` + its real stderr. Validated live — see
    "Testing done so far".
-5. **Make the blocklist a configurable policy** (JSON/YAML), not
+5. **[DONE 2026-07-18] Package as an MCP Bundle (`.mcpb`).**
+   `manifest.json` (manifest_version 0.3) with all 13 tools, user_config
+   for the previously buried env assumptions (`ros_setup_script`,
+   `wsl_distro`, `shell_bin`), README Privacy Policy section +
+   `privacy_policies` manifest field, `mcpb validate` passing, packed at
+   6.4MB. Validated three ways — see "Testing done so far". Version
+   bumped to 0.2.0 (package.json, manifest, serverInfo).
+6. **Make the blocklist a configurable policy** (JSON/YAML), not
    hardcoded in `shell-tools.ts`.
-6. **Docker sandboxing for `run_command`** — run the target environment
+7. **Docker sandboxing for `run_command`** — run the target environment
    in a container, bind-mount the working dir, so `apt-get` and system
    changes are contained. This is the real safety layer; the blocklist
    is a stopgap until this lands.
-7. **Gazebo/IsaacSim-specific tools** — `spawn_model`, `reset_pose`,
+8. **Gazebo/IsaacSim-specific tools** — `spawn_model`, `reset_pose`,
    `pause_physics`. Build after ROS layer is verified against turtlesim.
-8. **Dashboard** (Claude Design candidate, not yet) — job status, ROS
+9. **Dashboard** (Claude Design candidate, not yet) — job status, ROS
    graph, log tail. Sequence this AFTER the ROS layer is verified live —
    don't build a UI for data we haven't confirmed is real.
+
+## Distribution readiness — honest blockers (as of 2026-07-18)
+
+The .mcpb installs and runs, but do NOT hand this to strangers yet:
+
+1. **No sandbox behind a one-click install.** `run_command` + `patch_file`
+   execute/edit as the OS user with no path scoping; the blocklist regexes
+   are trivially bypassable (`rm -rf ~`, `cd / && rm -rf .` both pass).
+   Roadmap #6/#7 must land first. The one-click install makes this WORSE
+   than the manual config, because it removes the natural technical filter
+   on who installs it.
+2. **Single-environment validation**: Ubuntu 26.04 + Lyrical + WSL2 only.
+   Jazzy/Humble "supported" via ros_setup_script but never actually run;
+   macOS never tested at all (and ROS on macOS is basically unsupported
+   upstream); plain-Linux Claude Desktop untested.
+3. **Windows-without-WSL breaks non-gracefully**: run_command needs bash
+   (Git Bash not guaranteed on user machines) and fails with a raw ENOENT
+   error rather than a helpful message; ROS tools degrade gracefully but
+   shell tools don't.
+4. **No LICENSE file or license field** — legally undistributable as-is.
+5. **`privacy_policies` needs a public URL for directory review** — the
+   policy text lives in README (good) but there's no public repo/site to
+   host it; directory submission requires a real URL.
+6. **No tool annotations** (readOnlyHint/destructiveHint etc.) — the
+   Connectors Directory submission requirements mandate annotations on
+   every tool; server.tool() registrations don't set any yet.
+7. **run_command's `bash` resolution on Windows is PATH-dependent** —
+   observed live: it resolved to the WSL bridge bash, so shell commands
+   silently ran in WSL, not Windows. Surprising behavior = support burden.
+8. **JobManager state is per-process**: Desktop restarts the server per
+   session, so restart_ros_node ownership doesn't survive restarts.
 
 ## Development environment
 

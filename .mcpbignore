@@ -1,0 +1,14 @@
+# Keep the bundle to what the server needs at runtime:
+# manifest.json, dist/, node_modules/, package.json, README.md
+.git
+.gitignore
+src
+tsconfig.json
+CLAUDE.md
+harness.mjs
+patch-harness.mjs
+workspace-harness.mjs
+sample-harness.mjs
+mcp-roundtrip.sh
+mcp-report.mjs
+*.mcpb

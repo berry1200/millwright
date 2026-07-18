@@ -17,12 +17,16 @@ export function isCommandBlocked(command: string): string | null {
   return null;
 }
 
+// Surfaced as MCPB user_config (shell_bin) because "bash" was a buried
+// hardcoded assumption - e.g. a Windows host may want Git Bash's full path.
+const SHELL_BIN = process.env.SHELL_BIN || "bash";
+
 export async function runCommand(command: string, timeoutMs = 30000, cwd?: string) {
   const blocked = isCommandBlocked(command);
   if (blocked) return { blocked: true, reason: blocked };
 
   try {
-    const { stdout, stderr } = await execFileAsync("bash", ["-lc", command], {
+    const { stdout, stderr } = await execFileAsync(SHELL_BIN, ["-lc", command], {
       timeout: timeoutMs,
       cwd,
       maxBuffer: 10 * 1024 * 1024,

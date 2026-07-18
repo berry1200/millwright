@@ -1,0 +1,108 @@
+{
+  "manifest_version": "0.3",
+  "name": "linux-ros-mcp-bridge",
+  "display_name": "Linux + ROS 2 Bridge",
+  "version": "0.2.0",
+  "description": "Linux dev tools and ROS 2 robotics tools (introspection, simulation, workspace builds) for any MCP client, with a simulation-first safety posture.",
+  "long_description": "An execution layer that lets the model work as a Linux developer and a ROS 2 robotics developer through one consistent tool schema: run bounded shell commands, edit files by exact search/replace, manage background jobs, introspect the ROS 2 graph, sample topics, launch and restart nodes it owns, scaffold packages, and run colcon builds with real compiler errors returned on failure.\n\nROS tools require a ROS 2 installation (validated against ROS 2 Lyrical on Ubuntu 26.04; Jazzy/Humble should work via the setup-script setting). Set `ros_setup_script` so the server can source your ROS environment - on Windows this path is inside your WSL distro and commands are routed through WSL automatically. All ROS tools degrade gracefully (clear `available: false` message) when ROS is absent; the Linux tools work everywhere a POSIX shell exists.",
+  "author": {
+    "name": "Berry James",
+    "email": "berryjames1200@gmail.com"
+  },
+  "server": {
+    "type": "node",
+    "entry_point": "dist/index.js",
+    "mcp_config": {
+      "command": "node",
+      "args": ["${__dirname}/dist/index.js"],
+      "env": {
+        "ROS_SETUP_SCRIPT": "${user_config.ros_setup_script}",
+        "ROS_WSL_DISTRO": "${user_config.wsl_distro}",
+        "SHELL_BIN": "${user_config.shell_bin}"
+      }
+    }
+  },
+  "tools": [
+    {
+      "name": "run_command",
+      "description": "Run a shell command with bounded output (~200 lines head+tail), a hard timeout, and a destructive-command blocklist. Blocking; long-running work belongs in start_background_job."
+    },
+    {
+      "name": "patch_file",
+      "description": "Edit a file by exact search/replace. Refuses zero-match and ambiguous multi-match edits (unless replace_all) and leaves the file byte-for-byte unchanged on any refusal; replacement text is inserted literally."
+    },
+    {
+      "name": "start_background_job",
+      "description": "Start a long-running command (server, watcher, sim) as a tracked background job; returns a job_id immediately."
+    },
+    {
+      "name": "list_background_jobs",
+      "description": "List all background jobs started by this server (Linux or ROS) with status and start time."
+    },
+    {
+      "name": "read_job_logs",
+      "description": "Tail recent stdout/stderr of a background job to confirm it came up cleanly or diagnose a failure."
+    },
+    {
+      "name": "stop_background_job",
+      "description": "Stop a background job gracefully: SIGINT, then SIGKILL after the grace period."
+    },
+    {
+      "name": "list_ros_nodes",
+      "description": "List active ROS 2 nodes (de-duplicated), optionally filtered by a name substring."
+    },
+    {
+      "name": "get_ros_graph",
+      "description": "Return the ROS 2 computational graph (nodes + topics) as structured JSON; optionally include hidden topics."
+    },
+    {
+      "name": "sample_ros_topic",
+      "description": "Capture up to max_messages from a topic over ONE persistent subscription, stopping at N messages or when the overall timeout_sec budget elapses (short reads flagged timed_out). Messages are clean YAML documents (no --- separator); the subscription process is confirmed dead before the call returns. message_type is accepted but ignored - the type is resolved from the live topic."
+    },
+    {
+      "name": "start_ros_launch_job",
+      "description": "Launch a ROS 2 package/launch file as a tracked background job. Required before restart_ros_node will work for that node."
+    },
+    {
+      "name": "restart_ros_node",
+      "description": "Stop and relaunch a ROS 2 node previously started via start_ros_launch_job. Refuses to touch processes this server did not launch (deliberate safety boundary)."
+    },
+    {
+      "name": "create_ros_package",
+      "description": "Scaffold a new ROS 2 package via `ros2 pkg create` inside a workspace src/ directory (created if missing); choose ament_cmake or ament_python, declare dependencies, optionally scaffold a starter node."
+    },
+    {
+      "name": "build_ros_workspace",
+      "description": "Build a ROS 2 workspace with `colcon build` (optionally --packages-select). Bounded and truncated like run_command; on failure returns success:false with the real compiler errors in stderr."
+    }
+  ],
+  "user_config": {
+    "ros_setup_script": {
+      "type": "string",
+      "title": "ROS 2 setup script path",
+      "description": "Path to your ROS 2 distro's setup.bash, e.g. /opt/ros/lyrical/setup.bash (or jazzy/humble). The server sources it before every ROS command, so ROS tools work even though this app doesn't launch from a ROS-sourced shell. On Windows, give the path INSIDE your WSL distro. Leave blank if you don't use ROS or you launch the server from an already-sourced environment.",
+      "required": false
+    },
+    "wsl_distro": {
+      "type": "string",
+      "title": "WSL distro for ROS (Windows only)",
+      "description": "Windows only: the WSL distribution where ROS 2 is installed. ROS commands are routed into it via wsl.exe when a setup script is configured. Ignored on macOS/Linux.",
+      "default": "Ubuntu",
+      "required": false
+    },
+    "shell_bin": {
+      "type": "string",
+      "title": "Shell for run_command",
+      "description": "Shell binary used by run_command (invoked as `<shell> -lc \"...\"`). Default: bash. On Windows without bash on PATH, set the full path to Git Bash, e.g. C:\\Program Files\\Git\\bin\\bash.exe.",
+      "default": "bash",
+      "required": false
+    }
+  },
+  "compatibility": {
+    "platforms": ["darwin", "win32", "linux"],
+    "runtimes": {
+      "node": ">=18.0.0"
+    }
+  },
+  "privacy_policies": []
+}

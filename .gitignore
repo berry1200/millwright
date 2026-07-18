@@ -3,3 +3,4 @@ dist/
 patch-sandbox.txt
 *.log
 .DS_Store
+*.mcpb
