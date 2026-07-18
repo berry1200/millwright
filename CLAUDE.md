@@ -185,6 +185,24 @@ Tools currently registered:
   line (implicit return, `[[maybe_unused]]` params), so the first break anchor
   didn't match — `patch_file` correctly returned `applied: false` (search not
   found) instead of silently mis-editing, which is exactly the guardrail it's for.
+- **Persistent-subscription `sample_ros_topic` validated live (2026-07-18)** via
+  `sample-harness.mjs` against turtlesim (`/turtle1/pose` publishes ~62 Hz).
+  Results: `max_messages=1` -> 1 msg in ~2.0s; `max_messages=5` -> 5 msgs in
+  ~1.3s; `max_messages=20` -> 20 msgs in ~1.5s (the old N-cold-starts design
+  would have paid ~1s startup PER message). Timeout path: `/turtle1/cmd_vel`
+  (exists — turtlesim subscribes — but nothing publishes) with a 4s budget
+  returned `sampled: 0, timed_out: true` in ~4.2s. Error path: a nonexistent
+  topic returned `process_exited_early, exit_code: 1` with the real stderr
+  ("Could not determine the type for the passed topic") in ~0.5s. Orphan checks:
+  `ps -ef | grep 'topic echo'` was clean immediately after every single call and
+  at the end. NOTE the first harness run FAILED that check: `finish()` resolved
+  the promise before the SIGINT landed, so ps caught the still-dying child —
+  fixed by only resolving after the child's exit is confirmed (the fix is the
+  wait-for-exit contract now described in roadmap #4). The full MCP round-trip
+  (`mcp-roundtrip.sh`) was then re-run: `tools/list` returns all **13** tools,
+  and `sample_ros_topic` called over the wire with `max_messages: 3` returned
+  `sampled: 3` clean YAML docs (no trailing `---`), with zero orphan processes
+  after the run.
 
 ## Roadmap (priority order)
 
@@ -210,15 +228,21 @@ Tools currently registered:
    the develop loop: scaffold -> edit -> build -> read the compiler errors
    -> patch -> rebuild. Validated live against real colcon — see "Testing
    done so far".
-4. **Harden `sample_ros_topic` for `max_messages > 1`** (recorded, not
-   yet done). The current loop cold-starts a fresh `ros2 topic echo
-   --once` per message with a per-message timeout of `timeout_sec /
-   max_messages` — i.e. the budget SHRINKS as you ask for more messages,
-   while each fresh echo also pays ~1s of process/discovery startup. Fine
-   for `max_messages=1` (the only path exercised so far, ~1.2s), but
-   fragile and slow for multi-message capture. Future fix: a single
-   persistent subscription that captures N messages, instead of N cold
-   starts. Unvalidated — nothing calls it with `max_messages > 1` yet.
+4. **[DONE 2026-07-18] Harden `sample_ros_topic` for `max_messages > 1`.**
+   Replaced the N-cold-starts loop (per-message budget of `timeout_sec /
+   max_messages` that SHRANK as N grew, plus ~1s startup per message) with
+   a single persistent `ros2 topic echo` subscription: stdout is buffered
+   and complete `---`-terminated YAML documents are peeled off as they
+   stream (partial documents stay in the buffer until terminated), stopping
+   at N messages or when the overall `timeout_sec` budget elapses. The
+   child is killed on every exit path (SIGINT, SIGKILL after 2s, plus a
+   3.5s failsafe so the call can never hang), and the tool only returns
+   AFTER the child's exit is confirmed — "returned" implies "subscription
+   gone". Return-shape notes: messages no longer include the trailing
+   `---` separator; a short read is flagged `timed_out: true`; a child
+   that dies early (e.g. nonexistent topic) returns
+   `process_exited_early` + its real stderr. Validated live — see
+   "Testing done so far".
 5. **Make the blocklist a configurable policy** (JSON/YAML), not
    hardcoded in `shell-tools.ts`.
 6. **Docker sandboxing for `run_command`** — run the target environment

@@ -29,7 +29,7 @@ EOF
 # called with NO message_type, to prove the arg is truly optional over the wire.
 cat > /tmp/req.c <<EOF
 {"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"patch_file","arguments":{"path":"$SANDBOX","search":"SECRET = 123","replace":"SECRET = 999"}}}
-{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"sample_ros_topic","arguments":{"topic_name":"/turtle1/pose"}}}
+{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"sample_ros_topic","arguments":{"topic_name":"/turtle1/pose","max_messages":3,"timeout_sec":8}}}
 {"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"list_ros_nodes","arguments":{}}}
 EOF
 

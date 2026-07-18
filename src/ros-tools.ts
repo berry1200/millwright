@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import { mkdir } from "node:fs/promises";
 import { jobManager } from "./job-manager.js";
@@ -61,8 +61,6 @@ export async function sampleRosTopic(
   timeoutSec = 3.0
 ) {
   if (!(await isRos2Available())) return { available: false, message: ROS_NOT_AVAILABLE_MSG };
-  const messages: string[] = [];
-  const perMessageTimeoutMs = Math.max(500, (timeoutSec * 1000) / maxMessages);
   // We deliberately do NOT pass `messageType` as the positional to
   // `ros2 topic echo`. Verified live on ROS 2 Lyrical: passing an explicit type
   // makes echo fail hard ("The passed message type is invalid") whenever the
@@ -72,21 +70,106 @@ export async function sampleRosTopic(
   // on its own, so the positional is unnecessary. `messageType` is retained in
   // the signature for tool-schema/API compatibility and as caller documentation.
   void messageType;
-  for (let i = 0; i < maxMessages; i++) {
-    try {
-      const { stdout } = await execFileAsync(
-        "ros2",
-        ["topic", "echo", "--once", topicName],
-        { timeout: perMessageTimeoutMs }
-      );
-      if (stdout.trim()) messages.push(stdout.trim());
-    } catch (err: any) {
-      // Timeout on this sample just means no message arrived in time - not fatal.
-      if (err.killed) continue;
-      return { available: true, error: err.message, messages };
-    }
-  }
-  return { available: true, topic: topicName, messages, sampled: messages.length };
+
+  // One persistent `ros2 topic echo` subscription streams all N messages. This
+  // replaced an N-cold-starts loop where every message paid ~1s of process +
+  // discovery startup and the per-message budget SHRANK as N grew. Messages are
+  // YAML documents each terminated by a `---` line: we buffer stdout, peel off
+  // complete documents as they arrive (a partial document simply stays in the
+  // buffer until its terminator shows up), and stop at N messages or when the
+  // overall timeoutSec budget elapses - whichever comes first. In every exit
+  // path the child is killed: SIGINT first, SIGKILL 2s later if it ignored that.
+  return await new Promise<Record<string, unknown>>((resolve) => {
+    const messages: string[] = [];
+    let buffer = "";
+    let stderrBuf = "";
+    let settled = false;
+
+    const child = spawn("ros2", ["topic", "echo", topicName], {
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+
+    const finish = (extra: Record<string, unknown> = {}) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(deadline);
+      const resolveNow = (more: Record<string, unknown> = {}) =>
+        resolve({
+          available: true,
+          topic: topicName,
+          messages,
+          sampled: messages.length,
+          ...extra,
+          ...more,
+        });
+      // Resolve only AFTER the child is confirmed dead, so "the tool returned"
+      // always implies "the subscription is gone" - a ps check right after the
+      // call must find nothing. (First harness run resolved before the kill
+      // landed, and ps caught the still-dying child. Racy contracts rot.)
+      if (child.exitCode !== null || child.signalCode !== null) {
+        resolveNow();
+        return;
+      }
+      const hardKill = setTimeout(() => {
+        try { child.kill("SIGKILL"); } catch {}
+      }, 2000);
+      // Failsafe: never hang the tool call even if SIGKILL somehow can't land.
+      const failsafe = setTimeout(() => resolveNow({ kill_confirmed: false }), 3500);
+      child.once("exit", () => {
+        clearTimeout(hardKill);
+        clearTimeout(failsafe);
+        resolveNow();
+      });
+      try {
+        child.kill("SIGINT");
+      } catch {
+        // kill() threw synchronously (already reaped); exit has fired or will.
+      }
+    };
+
+    const deadline = setTimeout(() => {
+      finish(messages.length < maxMessages ? { timed_out: true } : {});
+    }, timeoutSec * 1000);
+
+    child.stdout.on("data", (chunk: Buffer) => {
+      if (settled) return;
+      buffer += chunk.toString("utf8");
+      // Defensive: a separator at the very start of the stream would otherwise
+      // get glued onto the front of the first document.
+      if (buffer.startsWith("---\n")) buffer = buffer.slice(4);
+      // Peel complete documents. The separator is a line that is exactly `---`;
+      // YAML block scalars indent continuation lines, so a bare `---` at column
+      // 0 can't appear inside a message body.
+      let sep: number;
+      while (!settled && (sep = buffer.indexOf("\n---\n")) !== -1) {
+        const doc = buffer.slice(0, sep).trim();
+        buffer = buffer.slice(sep + 5);
+        if (doc) messages.push(doc);
+        if (messages.length >= maxMessages) finish();
+      }
+    });
+
+    child.stderr.on("data", (chunk: Buffer) => {
+      if (stderrBuf.length < 8192) stderrBuf += chunk.toString("utf8");
+    });
+
+    child.on("error", (err) => {
+      finish({ error: `failed to spawn ros2: ${err.message}` });
+    });
+
+    child.on("exit", (code) => {
+      // Child died before N messages and before the deadline (e.g. the topic
+      // doesn't exist, or echo couldn't resolve a type). Anything left in the
+      // buffer is an unterminated partial document - dropped rather than
+      // returned as half a message.
+      if (settled) return;
+      finish({
+        process_exited_early: true,
+        exit_code: code,
+        ...(stderrBuf.trim() ? { stderr: truncateOutput(stderrBuf.trim()) } : {}),
+      });
+    });
+  });
 }
 
 export async function startRosLaunchJob(

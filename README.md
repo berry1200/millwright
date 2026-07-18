@@ -107,6 +107,5 @@ bash mcp-roundtrip.sh       # raw JSON-RPC over stdio (spawns dist/index.js)
 ## Roadmap
 
 See [`CLAUDE.md`](./CLAUDE.md) for the full, prioritized roadmap. Next up:
-harden `sample_ros_topic` for multi-message capture, make the blocklist a
-configurable policy, Docker sandboxing for `run_command`, Gazebo/Isaac Sim
-tools, and a status dashboard.
+make the blocklist a configurable policy, Docker sandboxing for `run_command`,
+Gazebo/Isaac Sim tools, and a status dashboard.

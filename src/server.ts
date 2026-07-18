@@ -150,8 +150,10 @@ export function buildServer(): McpServer {
 
   server.tool(
     "sample_ros_topic",
-    "Subscribes to a ROS 2 topic and captures a bounded number of messages, then " +
-      "returns. Never hangs indefinitely, unlike a raw 'ros2 topic echo'.",
+    "Subscribes to a ROS 2 topic with a single persistent subscription and captures a " +
+      "bounded number of messages, then returns. Never hangs indefinitely, unlike a raw " +
+      "'ros2 topic echo': it stops at max_messages or when timeout_sec elapses, whichever " +
+      "comes first, and returns whatever was captured (timed_out: true marks a short read).",
     {
       topic_name: z.string().describe("e.g. '/odom' or '/scan'."),
       message_type: z
@@ -163,8 +165,14 @@ export function buildServer(): McpServer {
             "resolves the type from the live topic itself, so a value passed here is ignored " +
             "(and a stale/wrong type has no effect). e.g. 'nav_msgs/msg/Odometry'."
         ),
-      max_messages: z.number().default(1),
-      timeout_sec: z.number().default(3.0),
+      max_messages: z.number().default(1).describe("Messages to capture before returning."),
+      timeout_sec: z
+        .number()
+        .default(3.0)
+        .describe(
+          "Overall time budget in seconds for the whole sample (not per-message). On " +
+            "expiry the messages captured so far are returned with timed_out: true."
+        ),
     },
     async ({ topic_name, message_type, max_messages, timeout_sec }) => {
       const result = await sampleRosTopic(topic_name, message_type, max_messages, timeout_sec);
