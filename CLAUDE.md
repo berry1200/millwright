@@ -267,9 +267,19 @@ Tools currently registered:
   ps inside WSL afterward: zero orphaned `topic echo` processes — the kill
   contract holds through the wsl.exe indirection. Observed: on this machine
   `bash` on the Windows PATH resolves to the WSL bridge, so run_command
-  output showed the WSL kernel (see Distribution readiness #7). NOT yet
-  verified: the in-Desktop-GUI install click + chat-driven tool calls (GUI
-  interaction only the user can do; installer dialog was launched for them).
+  output showed the WSL kernel (see Distribution readiness #7).
+- **Installed-extension verification completed (2026-07-18).** The user
+  installed `millwright-0.3.0.mcpb` through Claude Desktop's real install
+  dialog (found: `.mcpb` has NO file association on a fresh Windows box —
+  `assoc .mcpb` errors — so double-click may do nothing; drag-and-drop into
+  the Desktop window or Settings > Extensions > Advanced > Install
+  Extension are the reliable paths). Post-install, the extension's 13 tools
+  came up live and were exercised through the installed server with the
+  user's real config values (`/opt/ros/lyrical/setup.bash`, `Ubuntu`,
+  `bash`): `list_ros_nodes` -> `/turtlesim`; `run_command` -> WSL kernel
+  via the bash bridge; `sample_ros_topic max_messages:3` -> `sampled: 3`
+  clean YAML docs; zero orphaned `topic echo` processes afterward. This
+  closes the last NOT-verified item from the MCPB round of testing.
 
 ## Roadmap (priority order)
 
