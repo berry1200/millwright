@@ -3,10 +3,21 @@ import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 
-// Minimal starter blocklist. Extend deliberately - don't let this grow by
-// accident. The point is to block obviously destructive/irreversible
-// commands, not to sandbox everything (that's the container's job).
-const BLOCKED_PATTERNS = [/\brm\s+-rf\s+\/(\s|$)/, /\bmkfs\b/, /\bdd\s+.*of=\/dev\//, /:\(\)\{.*\};:/];
+// STOPGAP, not a defense. This blocklist only catches the most catastrophic
+// obvious patterns; it is trivially bypassable by design (e.g. `cd / && rm
+// -rf .`, variables, base64 | sh) and no amount of regex will change that.
+// The real defense is the Docker sandbox (roadmap; see docs/sandboxing.md) -
+// do NOT keep growing this list in pursuit of completeness.
+const BLOCKED_PATTERNS = [
+  // rm with any flags aimed at /, /*, ~, ~/, $HOME, or /home - catches the
+  // separated-flags forms (`rm -r -f ~`) too, since flags are matched as a
+  // repeated group rather than one literal `-rf`.
+  /\brm\s+(?:-{1,2}[\w-]+\s+)*["']?(?:\/\*?|~\/?|\$HOME\b\/?|\/home\/?\*?)["']?\s*(?:\s|$|;|&|\|)/,
+  /--no-preserve-root/,
+  /\bmkfs\b/,
+  /\bdd\s+.*of=\/dev\//,
+  /:\(\)\{.*\};:/,
+];
 
 const MAX_OUTPUT_LINES = 200;
 
@@ -38,6 +49,19 @@ export async function runCommand(command: string, timeoutMs = 30000, cwd?: strin
       stderr: truncateOutput(stderr),
     };
   } catch (err: any) {
+    // Shell binary itself missing (e.g. Windows without Git Bash/WSL): degrade
+    // with an actionable message, like the ROS tools do, instead of a raw ENOENT.
+    if (err.code === "ENOENT") {
+      return {
+        blocked: false,
+        shell_available: false,
+        message:
+          `Shell '${SHELL_BIN}' was not found on this system, so run_command (and background ` +
+          `jobs using it) cannot work. Install a POSIX shell - on Windows, Git Bash or WSL - ` +
+          `or set the shell_bin setting (SHELL_BIN env var) to a full path, e.g. ` +
+          `C:\\Program Files\\Git\\bin\\bash.exe. ROS and file tools are unaffected.`,
+      };
+    }
     return {
       blocked: false,
       exitCode: err.code ?? 1,

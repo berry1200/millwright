@@ -31,6 +31,7 @@ export function buildServer(): McpServer {
       timeout_ms: z.number().default(30000).describe("Hard timeout in milliseconds."),
       cwd: z.string().optional().describe("Working directory to run the command in."),
     },
+    { title: "Run shell command", readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
     async ({ command, timeout_ms, cwd }) => {
       const result = await runCommand(command, timeout_ms, cwd);
       return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
@@ -57,6 +58,7 @@ export function buildServer(): McpServer {
         .default(false)
         .describe("If true, replace every occurrence. If false (default), require exactly one match."),
     },
+    { title: "Patch file", readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
     async ({ path, search, replace, replace_all }) => {
       const result = await patchFile(path, search, replace, { replaceAll: replace_all });
       return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
@@ -73,6 +75,8 @@ export function buildServer(): McpServer {
       args: z.array(z.string()).default([]).describe("Arguments to the command."),
       name: z.string().describe("Human-readable label for this job."),
     },
+    // Destructive: it executes an arbitrary command, same trust level as run_command.
+    { title: "Start background job", readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
     async ({ command, args, name }) => {
       const job = jobManager.start(command, args, name);
       return { content: [{ type: "text", text: JSON.stringify({ job_id: job.id, status: job.status }) }] };
@@ -85,6 +89,7 @@ export function buildServer(): McpServer {
     "list_background_jobs",
     "Lists all background jobs started by this server, Linux or ROS, with their status.",
     {},
+    { title: "List background jobs", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async () => {
       const jobs = jobManager.list().map((j) => ({
         job_id: j.id,
@@ -104,6 +109,7 @@ export function buildServer(): McpServer {
       job_id: z.string(),
       tail_lines: z.number().default(50),
     },
+    { title: "Read job logs", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async ({ job_id, tail_lines }) => {
       const lines = jobManager.tailLogs(job_id, tail_lines);
       return { content: [{ type: "text", text: lines.join("\n") || "(no output yet)" }] };
@@ -117,6 +123,8 @@ export function buildServer(): McpServer {
       job_id: z.string(),
       grace_period_sec: z.number().default(5.0),
     },
+    // Idempotent: stopping an already-stopped job is a no-op.
+    { title: "Stop background job", readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
     async ({ job_id, grace_period_sec }) => {
       await jobManager.stop(job_id, "SIGINT", grace_period_sec * 1000);
       return { content: [{ type: "text", text: `Stopped ${job_id}` }] };
@@ -130,6 +138,7 @@ export function buildServer(): McpServer {
     "Lists active ROS 2 nodes, optionally filtered by a name substring. Call this " +
       "before restart_ros_node to get the exact node name.",
     { filter: z.string().optional() },
+    { title: "List ROS nodes", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async ({ filter }) => {
       const result = await listRosNodes(filter);
       return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
@@ -142,6 +151,7 @@ export function buildServer(): McpServer {
       "JSON, so the model doesn't need to run several raw bash commands to understand " +
       "system state.",
     { include_hidden: z.boolean().default(false) },
+    { title: "Get ROS graph", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async ({ include_hidden }) => {
       const result = await getRosGraph(include_hidden);
       return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
@@ -174,6 +184,8 @@ export function buildServer(): McpServer {
             "expiry the messages captured so far are returned with timed_out: true."
         ),
     },
+    // Read-only: observes topic data via a transient subscriber; no system state changes.
+    { title: "Sample ROS topic", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async ({ topic_name, message_type, max_messages, timeout_sec }) => {
       const result = await sampleRosTopic(topic_name, message_type, max_messages, timeout_sec);
       return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
@@ -194,6 +206,8 @@ export function buildServer(): McpServer {
         .optional()
         .describe("Optional label to associate with this job for later restart_ros_node calls."),
     },
+    // Additive (starts processes), not destructive - but each call launches anew.
+    { title: "Start ROS launch job", readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     async ({ package_name, launch_file, arguments: args, ros_node_name }) => {
       const result = await startRosLaunchJob(package_name, launch_file, args, ros_node_name);
       return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
@@ -208,6 +222,7 @@ export function buildServer(): McpServer {
       node_name: z.string(),
       grace_period_sec: z.number().default(5.0),
     },
+    { title: "Restart ROS node", readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
     async ({ node_name, grace_period_sec }) => {
       const result = await restartRosNode(node_name, grace_period_sec);
       return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
@@ -239,6 +254,8 @@ export function buildServer(): McpServer {
         .optional()
         .describe("Optional: also scaffold a starter node with this name."),
     },
+    // Additive scaffold; a second identical call fails (package exists) rather than overwriting.
+    { title: "Create ROS package", readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     async ({ package_name, destination_directory, build_type, dependencies, node_name }) => {
       const result = await createRosPackage(
         package_name,
@@ -265,6 +282,8 @@ export function buildServer(): McpServer {
         .describe("Optional: only build these packages (colcon --packages-select). Empty = all."),
       timeout_ms: z.number().default(600000).describe("Hard timeout in milliseconds."),
     },
+    // Destructive: overwrites build/install artifacts in the workspace. Rebuilds are idempotent.
+    { title: "Build ROS workspace", readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
     async ({ workspace_path, packages, timeout_ms }) => {
       const result = await buildRosWorkspace(workspace_path, packages, timeout_ms);
       return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };

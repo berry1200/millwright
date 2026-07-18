@@ -301,31 +301,42 @@ Tools currently registered:
 The .mcpb installs and runs, but do NOT hand this to strangers yet:
 
 1. **No sandbox behind a one-click install.** `run_command` + `patch_file`
-   execute/edit as the OS user with no path scoping; the blocklist regexes
-   are trivially bypassable (`rm -rf ~`, `cd / && rm -rf .` both pass).
-   Roadmap #6/#7 must land first. The one-click install makes this WORSE
-   than the manual config, because it removes the natural technical filter
-   on who installs it.
+   execute/edit as the OS user with no path scoping. Sandboxing is now
+   prioritized AHEAD of the blocklist-policy roadmap item — design doc at
+   `docs/sandboxing.md` (pending review before implementation). The
+   one-click install makes this WORSE than the manual config, because it
+   removes the natural technical filter on who installs it.
+   *(Partial mitigation 2026-07-18: blocklist extended to catch `rm -rf
+   ~`/`$HOME`/`/*`/`/home` incl. separated flags, verified both directions
+   — explicitly a stopgap; `cd / && rm -rf .`, variables, and encodings
+   still pass by design.)*
 2. **Single-environment validation**: Ubuntu 26.04 + Lyrical + WSL2 only.
    Jazzy/Humble "supported" via ros_setup_script but never actually run;
-   macOS never tested at all (and ROS on macOS is basically unsupported
-   upstream); plain-Linux Claude Desktop untested.
-3. **Windows-without-WSL breaks non-gracefully**: run_command needs bash
-   (Git Bash not guaranteed on user machines) and fails with a raw ENOENT
-   error rather than a helpful message; ROS tools degrade gracefully but
-   shell tools don't.
-4. **No LICENSE file or license field** — legally undistributable as-is.
+   plain-Linux Claude Desktop untested. *(macOS: resolved 2026-07-18 by
+   dropping the `darwin` claim from manifest compatibility — ROS on macOS
+   isn't realistically supported upstream.)*
+3. ~~Windows-without-WSL breaks non-gracefully~~ **FIXED 2026-07-18**:
+   a missing shell now returns `{shell_available: false, message}` with
+   install/config guidance, mirroring the ROS tools' degradation.
+4. ~~No LICENSE~~ **FIXED 2026-07-18**: Apache-2.0 (chosen over MIT for
+   the explicit patent grant + automatic contribution licensing, §5);
+   LICENSE file + `license` field in manifest and package.json.
 5. **`privacy_policies` needs a public URL for directory review** — the
    policy text lives in README (good) but there's no public repo/site to
-   host it; directory submission requires a real URL.
-6. **No tool annotations** (readOnlyHint/destructiveHint etc.) — the
-   Connectors Directory submission requirements mandate annotations on
-   every tool; server.tool() registrations don't set any yet.
+   host it; directory submission requires a real URL. STILL OPEN.
+6. ~~No tool annotations~~ **FIXED 2026-07-18**: all 13 tools carry
+   explicit `title`/`readOnlyHint`/`destructiveHint`/`idempotentHint`/
+   `openWorldHint` (all four set explicitly because spec defaults are
+   permissive). Destructive: run_command, patch_file, start_background_job
+   (arbitrary exec — added beyond the obvious five), stop_background_job,
+   restart_ros_node, build_ros_workspace. Verified over the wire.
 7. **run_command's `bash` resolution on Windows is PATH-dependent** —
    observed live: it resolved to the WSL bridge bash, so shell commands
-   silently ran in WSL, not Windows. Surprising behavior = support burden.
+   silently ran in WSL, not Windows. Mitigated by the `shell_bin` setting
+   but the default remains PATH-dependent. STILL OPEN (support burden).
 8. **JobManager state is per-process**: Desktop restarts the server per
    session, so restart_ros_node ownership doesn't survive restarts.
+   STILL OPEN.
 
 ## Development environment
 

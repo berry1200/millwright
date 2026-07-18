@@ -9,6 +9,7 @@
     "name": "Berry James",
     "email": "berryjames1200@gmail.com"
   },
+  "license": "Apache-2.0",
   "server": {
     "type": "node",
     "entry_point": "dist/index.js",
@@ -99,7 +100,7 @@
     }
   },
   "compatibility": {
-    "platforms": ["darwin", "win32", "linux"],
+    "platforms": ["win32", "linux"],
     "runtimes": {
       "node": ">=18.0.0"
     }
