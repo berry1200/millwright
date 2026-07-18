@@ -77,7 +77,13 @@ npm install && npm run build
 npx @anthropic-ai/mcpb pack
 ```
 
-Then double-click the generated `.mcpb` (or drag it into Claude Desktop).
+Then install it in Claude Desktop: **Settings → Extensions → Advanced
+settings → Install Extension…** and pick the `.mcpb` file (or drag the file
+into the Claude Desktop window). Don't rely on double-clicking the file: on
+Windows, `.mcpb` frequently has no file association, so Windows shows an
+"open with" app picker that doesn't list Claude Desktop and the double-click
+goes nowhere — observed on a real install.
+
 The install dialog prompts for three optional settings:
 
 - **ROS 2 setup script path** — e.g. `/opt/ros/lyrical/setup.bash` (works for
@@ -91,6 +97,16 @@ The install dialog prompts for three optional settings:
 
 Leave the setup script blank if you don't use ROS: the Linux tools work
 independently, and ROS tools reply with a clear `available: false` message.
+
+### First prompts: name the extension
+
+Millwright's tool names are deliberately generic (`run_command`,
+`patch_file`), and some Claude surfaces have built-in tools with similar
+jobs — so a bare "run uname -a" may get routed to a built-in sandbox
+instead of your real machine (observed on a real install: the built-in
+answered with its own container's kernel). Until the model has used
+Millwright once in a conversation, say so explicitly: **"Using Millwright,
+run uname -a."** After the first routed call it generally sticks.
 
 ## Manual config (Claude Code / other MCP clients)
 

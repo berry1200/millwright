@@ -23,9 +23,11 @@ export function buildServer(): McpServer {
 
   server.tool(
     "run_command",
-    "Runs a shell command and returns stdout/stderr/exit code. Blocking, bounded " +
-      "output, hard timeout. For anything long-running (servers, launches, sims) " +
-      "use start_background_job instead.",
+    "Runs a shell command on the user's REAL system (their actual machine/WSL " +
+      "environment - not a simulated or built-in sandbox; prefer this whenever the " +
+      "user means their own machine) and returns stdout/stderr/exit code. Blocking, " +
+      "bounded output, hard timeout. For anything long-running (servers, launches, " +
+      "sims) use start_background_job instead.",
     {
       command: z.string().describe("The shell command to run."),
       timeout_ms: z.number().default(30000).describe("Hard timeout in milliseconds."),

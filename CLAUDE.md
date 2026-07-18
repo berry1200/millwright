@@ -37,6 +37,18 @@ History and rationale, so this doesn't get reopened:
 - The MCP tool names (`run_command`, `list_ros_nodes`, ...) were
   deliberately NOT renamed — they're API surface; renaming would break
   existing configs for zero benefit.
+- **Collision verification (done 2026-07-18, after the decision):** the
+  earlier "essentially clean" claim was WRONG for npm. Findings: (1) npm
+  `millwright` is taken by a JS build tool, dormant since March 2017
+  (alpha, 9 years untouched) — matters only if we ever publish to npm;
+  a scoped name (@berryjames/millwright) sidesteps it. (2) A March-2026
+  personal project "Millwright" by crertel (github.com/crertel/millwright,
+  minor.gripe blog) does agent tool-selection — SAME ecosystem
+  (MCP/agent tooling), but a months-old blog project with no visible
+  adoption. (3) A Vintage Story game mod + real-world trade firms —
+  irrelevant. Assessment: no blocker, but (2) is worth watching; if it
+  gains real traction the confusion risk in MCP circles grows. Decision
+  owner: Berry James — current call is to keep the name.
 
 ## Vision
 
@@ -280,6 +292,27 @@ Tools currently registered:
   via the bash bridge; `sample_ros_topic max_messages:3` -> `sampled: 3`
   clean YAML docs; zero orphaned `topic echo` processes afterward. This
   closes the last NOT-verified item from the MCPB round of testing.
+- **User install report (2026-07-18), three findings, all acted on:**
+  1. *Install route*: double-click failed with a Windows "open with" app
+     picker (Claude Desktop not listed); Settings > Extensions > Advanced
+     settings > Install Extension worked. README now leads with the
+     Settings route and calls double-click unreliable on Windows.
+  2. *Config-field UX*: the ros_setup_script description packed four ideas
+     (path format, sourcing rationale, Windows caveat, blank case) into
+     one paragraph, and the install UI reuses the description as the
+     in-box placeholder, so it read as a wall of text. Fixed: description
+     is now example-first and terse; the four ideas live in the README.
+     The short fields (wsl_distro, shell_bin) were fine as-is — pattern
+     to follow for future config.
+  3. *Tool routing*: the user's first "run uname -a" was routed to
+     Claude's BUILT-IN sandbox (hostname `claude`, Ubuntu 22.04), not
+     Millwright — generically-named tools lose to built-ins until the
+     extension is named explicitly ("Using Millwright, ..."), after which
+     routing sticks. Mitigations: run_command's description (server +
+     manifest) now says it runs on the user's REAL system and to prefer
+     it when the user means their own machine; README tells users to name
+     the extension in first prompts. Keep this in mind for any future
+     generically-named tool.
 
 ## Roadmap (priority order)
 
