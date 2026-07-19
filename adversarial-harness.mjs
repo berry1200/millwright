@@ -9,8 +9,11 @@ import { setTimeout as sleep } from "node:timers/promises";
 const pexec = promisify(execFile);
 const scenario = process.argv[2];
 const hr = (t) => console.log("\n===== " + t + " =====");
-const verdict = (ok, label, detail) =>
+let FAILS = 0;
+const verdict = (ok, label, detail) => {
+  if (!ok) FAILS++;
   console.log(`${ok ? "PASS" : "**FAIL**"}  ${label}${detail ? "  — " + detail : ""}`);
+};
 
 const { runCommand } = await import("./dist/shell-tools.js");
 const { patchFile } = await import("./dist/file-tools.js");
@@ -139,9 +142,33 @@ message(FATAL_ERROR "PROBE net=\${NET} etc=\${ETC} tmp=\${TMP}")
   verdict(r.exitCode === 137 || (oomKilled && Number(oomKilled[1]) > 0), "attacker OOM-killed at the 2g cap (exit 137 / oom_kill>0)", `exit=${r.exitCode}`);
   verdict(alive === "1", "unrelated host process (turtlesim) still alive");
   verdict(/still-responsive/.test(still.stdout || ""), "sandbox still usable after the bomb");
+} else if (scenario === "cpus") {
+  hr("CPU spinner vs --cpus cap (host must stay responsive)");
+  // Like pids/memory: a spinner burns CPU indefinitely and a docker-exec child
+  // doesn't survive its exec, so measure a dedicated container capped at
+  // --cpus 1 running ONE busy loop PER HOST CORE, read its CPU% from the HOST.
+  // Uncapped it would read ~cores*100%; the cap should hold it near 100%.
+  await pexec("bash", ["-c", "docker rm -f mw_cpubomb >/dev/null 2>&1 || true"]);
+  const cores = (await pexec("bash", ["-c", "nproc"])).stdout.trim();
+  await pexec("bash", [
+    "-c",
+    `docker run -d --name mw_cpubomb --init --cpus 1 --memory 1g --pids-limit 256 ubuntu:24.04 ` +
+      `bash -c 'for i in $(seq ${cores}); do while :; do :; done & done; wait'`,
+  ]);
+  await sleep(5000);
+  const cpu = (await pexec("bash", ["-c", "docker stats --no-stream --format '{{.CPUPerc}}' mw_cpubomb"])).stdout.trim();
+  const t0 = Date.now();
+  await pexec("bash", ["-c", "for i in $(seq 200); do :; done"]); // trivial host work
+  const hostLatency = Date.now() - t0;
+  const alive = (await pexec("bash", ["-c", "ps -e -o comm= | grep -cx turtlesim_node || true"])).stdout.trim();
+  await pexec("bash", ["-c", "docker rm -f mw_cpubomb >/dev/null 2>&1 || true"]);
+  const cpuNum = parseFloat((cpu || "0").replace("%", "").trim());
+  console.log(`     host cores=${cores}; container capped at --cpus 1; measured CPU=${cpu} (uncapped ~${Number(cores) * 100}%); host round-trip ${hostLatency}ms`);
+  verdict(cpuNum > 0 && cpuNum <= 135, "CPU held near 1 core despite spinning all cores", `measured ${cpu}`);
+  verdict(alive === "1", "unrelated host process (turtlesim) still alive");
 } else {
   console.error("unknown scenario:", scenario);
   process.exit(2);
 }
-console.log("\nADVERSARIAL SCENARIO DONE:", scenario);
-process.exit(0);
+console.log(`\nADVERSARIAL SCENARIO DONE: ${scenario} (${FAILS} failed)`);
+process.exit(FAILS > 0 ? 1 : 0);

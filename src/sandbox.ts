@@ -26,6 +26,10 @@ const WORKBENCH_IMAGE = "ubuntu:24.04";
 const MEMORY_LIMIT = "2g";
 const BUILD_MEMORY_LIMIT = "4g";
 const PIDS_LIMIT = "512";
+// CPU cap (0.4.3): closes the last resource gap - pids/memory were capped but a
+// CPU spinner could still peg the shared Docker Desktop VM. Configurable via the
+// sandbox_cpus setting; a decimal fraction of host cores (docker --cpus).
+const CPUS_LIMIT = process.env.SANDBOX_CPUS || "2";
 
 export function sandboxEnabled(): boolean {
   return SANDBOX_MODE !== "off";
@@ -102,6 +106,7 @@ export async function ensureWorkbench(): Promise<SandboxGate> {
     "--label", SESSION_LABEL,
     "--memory", MEMORY_LIMIT,
     "--pids-limit", PIDS_LIMIT,
+    "--cpus", CPUS_LIMIT,
     ...(WORKBENCH_NETWORK === "none" ? ["--network", "none"] : []),
     ...(ws ? ["-v", `${ws}:${ws}`] : []),
     WORKBENCH_IMAGE,
@@ -163,6 +168,7 @@ export function jobRunInvocation(
     "--label", SESSION_LABEL,
     "--memory", MEMORY_LIMIT,
     "--pids-limit", PIDS_LIMIT,
+    "--cpus", CPUS_LIMIT,
     ...(WORKBENCH_NETWORK === "none" ? ["--network", "none"] : []),
     ...(ws ? ["-v", `${ws}:${ws}`, "-w", ws] : []),
     WORKBENCH_IMAGE,
@@ -194,6 +200,7 @@ export function buildRunInvocation(
     "--network", "none",
     "--memory", BUILD_MEMORY_LIMIT,
     "--pids-limit", PIDS_LIMIT,
+    "--cpus", CPUS_LIMIT,
     ...(uidGid ? ["--user", uidGid, "-e", "HOME=/tmp"] : []),
     "-v", `${workspacePath}:${workspacePath}`,
     "-w", workspacePath,
@@ -298,16 +305,23 @@ const DANGEROUS_ROOT_EXACT = new Set([
   "/lib", "/lib64", "/sys", "/proc", "/dev", "/boot", "/srv", "/run",
 ]);
 
+/** Pure classifier (unit-testable, no env/fs): is this POSIX path a
+ * filesystem / drive / home root too broad to ever sandbox-mount? */
+export function isDangerousWorkspaceRoot(posixPath: string): boolean {
+  const p = posixPath.replace(/\/+$/, "") || "/";
+  return (
+    DANGEROUS_ROOT_EXACT.has(p) ||
+    /^\/home\/[^/]+$/.test(p) || // a user's home directory
+    /^\/mnt\/[^/]+$/.test(p) // a mounted Windows drive root (e.g. /mnt/c)
+  );
+}
+
 /** Returns a refusal message if `workspace_dir` is a filesystem/drive/home
  * root, else null. Enforced at every sandbox entry point. */
 export function workspaceHardRefusal(): string | null {
   if (!sandboxEnabled() || !RAW_WORKSPACE_DIR) return null;
   const p = (workspaceMountPath() || RAW_WORKSPACE_DIR).replace(/\/+$/, "") || "/";
-  const danger =
-    DANGEROUS_ROOT_EXACT.has(p) ||
-    /^\/home\/[^/]+$/.test(p) || // a user's home directory
-    /^\/mnt\/[^/]+$/.test(p); // a mounted Windows drive root (e.g. /mnt/c)
-  if (!danger) return null;
+  if (!isDangerousWorkspaceRoot(p)) return null;
   return (
     `refused: workspace_dir is '${p}', a filesystem / drive / home root. Millwright will not ` +
     `sandbox-mount a location this broad - a single destructive command would reach your entire ` +

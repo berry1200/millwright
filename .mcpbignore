@@ -15,4 +15,9 @@ sandbox-harness.sh
 adversarial-harness.mjs
 mcp-roundtrip.sh
 mcp-report.mjs
+test
+test-docker.sh
+test-ros.sh
+.github
 *.mcpb
+*.bundle

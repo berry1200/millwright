@@ -23,7 +23,7 @@ import {
 export function buildServer(): McpServer {
   const server = new McpServer({
     name: "millwright",
-    version: "0.4.2",
+    version: "0.4.3",
   });
 
   // ---- Layer 1: general Linux execution ----------------------------------
