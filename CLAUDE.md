@@ -400,6 +400,26 @@ Tools currently registered:
   - **humble: PASS** — package built in `ros:humble-ros-base` (network=none,
     success, 1.54s, exit 0, no leaks).
   So the containerized build lane is validated on **Lyrical + Jazzy + Humble**.
+
+### Session handoff — verified vs pending (2026-07-19 end)
+
+**VERIFIED & committed this session** (HEAD `2210066`): 0.4.1 root guard +
+run_command description; 0.4.2 broad-workspace hard-refuse/warn split;
+0.4.3 `--cpus` cap (live: 16-core spinner → ~1 core); multi-distro build on
+jazzy + humble; Tier-1 unit tests (`npm test`, 6/6). Docker left ENABLED.
+Off-disk backup: `D:\Linux CLI\millwright-backup-2210066.bundle`.
+
+**PENDING (next session):**
+- **Push blocked**: 4 local commits (`d19e599`, `cb626d8`, `0930725`,
+  `2210066`) are NOT on `origin` — the stored token lacks GitHub `workflow`
+  scope (needed for `.github/workflows/ci.yml`). Fix: PAT with `repo`+`workflow`
+  (or fine-grained Contents+Workflows write), then `git push origin main`.
+- **CI not yet run in Actions**: `ci.yml` exists but its first run only happens
+  after the workflow lands on GitHub. Tier-2 (`test:sandbox`) and Tier-3
+  (`test:ros`) written but not executed via Actions (Tier-2 works locally on
+  Docker; Tier-3 needs a self-hosted ROS runner).
+- **Repack**: no fresh `.mcpb` built for 0.4.1–0.4.3 (last artifact was 0.4.0
+  before these fixes). Rebuild `millwright-0.4.3.mcpb` before reinstalling.
   Still untested: Lyrical-generated scaffold on much older distros; the Windows
   host-build carve-out on jazzy/humble; ROS introspection/launch against
   non-Lyrical (host lane, single-distro on this machine).
