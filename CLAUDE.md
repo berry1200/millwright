@@ -378,8 +378,14 @@ Tools currently registered:
   - **The harness caught two of its own measurement flaws** (pgrep absent in
     the minimal image; bash string-doubling too slow to reach 2g), both
     fixed before any cap was reported as validated — i.e. no cap was
-    green-lit on a silent no-op. Honest residual gap: no `--cpus` cap in v1
-    (see Distribution readiness #1).
+    green-lit on a silent no-op.
+  - **CPU cap verified (0.4.3, 2026-07-19)**: `--cpus` (SANDBOX_CPUS /
+    `sandbox_cpus`, default 2) now on workbench/job/build containers. Adversarial
+    `cpus` scenario: a dedicated container capped at `--cpus 1` running one busy
+    loop PER host core (16 cores) measured **99.20%** CPU host-side (uncapped
+    would be ~1600%), host round-trip 25ms — the cap holds, host stays
+    responsive. Resource story now complete: pids + memory + CPU all validated
+    biting under attack.
 - **ROS introspection harness re-run against 0.4.0 (2026-07-19)**: all five
   tools green (list_ros_nodes, get_ros_graph incl. hidden, sample_ros_topic
   both type args, start_ros_launch_job, restart_ros_node + refusal). Closes
@@ -526,10 +532,9 @@ The .mcpb installs and runs, but do NOT hand this to strangers yet:
    files it writes into the mounted workspace are root-owned on the host
    (build lane fixed to host uid:gid; workbench kept root so apt works —
    documented tradeoff). Adversarially validated 2026-07-19 (six break-out
-   attempts, all contained — see "Testing done so far"). Remaining sandbox
-   gap: **no `--cpus` limit in v1**, so a CPU spinner degrades the shared
-   Docker Desktop VM (not the Windows host) for its duration — pids/memory
-   are capped, CPU is not. Candidate follow-up.
+   attempts, all contained — see "Testing done so far"). **[RESOLVED 0.4.3]**
+   the CPU gap: `--cpus` cap now on all container types, verified holding a
+   16-core spinner to ~1 core. pids + memory + CPU all capped and validated.
 2. **Single-environment validation**: Ubuntu 26.04 + Lyrical + WSL2 only.
    Jazzy/Humble "supported" via ros_setup_script but never actually run;
    plain-Linux Claude Desktop untested. *(macOS: resolved 2026-07-18 by
