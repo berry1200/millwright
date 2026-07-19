@@ -1,4 +1,5 @@
 import { readFile, writeFile } from "node:fs/promises";
+import { sandboxEnabled, isInsideWorkspace } from "./sandbox.js";
 
 /**
  * Diff-style file editing: find an exact `search` block and replace it with
@@ -25,6 +26,14 @@ export async function patchFile(
 ) {
   if (search === "") {
     return { applied: false, reason: "search block is empty; provide the exact text to find." };
+  }
+
+  // Sandbox allowlist: when sandboxing is on, edits are confined to the
+  // configured workspace (the same directory the containers mount) - checked
+  // BEFORE the file is read, so nothing outside the workspace is even opened.
+  if (sandboxEnabled()) {
+    const gate = await isInsideWorkspace(path);
+    if (!gate.ok) return { applied: false, reason: gate.reason };
   }
 
   let content: string;

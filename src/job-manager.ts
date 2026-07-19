@@ -1,5 +1,6 @@
 import { spawn, ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { forceRemoveContainer } from "./sandbox.js";
 
 export type JobStatus = "running" | "exited" | "killed" | "error";
 
@@ -16,6 +17,10 @@ export interface Job {
   // ROS-specific bookkeeping so restart_ros_node can find and relaunch a
   // node that was started through this manager.
   rosNodeName?: string;
+  // Sandboxed jobs run as an attached `docker run`; killing the client does
+  // not reliably kill the container (a PID-1 bash ignores SIGINT - observed
+  // live), so stop() also removes the container by name.
+  containerName?: string;
 }
 
 const MAX_LOG_LINES = 2000;
@@ -30,7 +35,13 @@ const MAX_LOG_LINES = 2000;
 class JobManager {
   private jobs = new Map<string, Job>();
 
-  start(command: string, args: string[], name: string, rosNodeName?: string): Job {
+  start(
+    command: string,
+    args: string[],
+    name: string,
+    rosNodeName?: string,
+    containerName?: string
+  ): Job {
     const proc = spawn(command, args, {
       stdio: ["ignore", "pipe", "pipe"],
       detached: false,
@@ -47,6 +58,7 @@ class JobManager {
       proc,
       logLines: [],
       rosNodeName,
+      containerName,
     };
 
     const appendLog = (chunk: Buffer) => {
@@ -114,6 +126,14 @@ class JobManager {
         resolve();
       });
     });
+    // Sandboxed job: make sure the container is actually gone, not just the
+    // docker-run client. Harmless no-op when SIGINT already worked (--rm).
+    if (job.containerName) forceRemoveContainer(job.containerName);
+    // A stop WE initiated isn't an error, whatever exit code the client died
+    // with (a signalled docker-run client reports non-zero). Fresh lookup:
+    // the exit handler mutates status behind TS's narrowing.
+    const j = this.jobs.get(jobId);
+    if (j && j.status === "error") j.status = "killed";
   }
 }
 

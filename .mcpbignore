@@ -10,6 +10,8 @@ harness.mjs
 patch-harness.mjs
 workspace-harness.mjs
 sample-harness.mjs
+sandbox-harness.mjs
+sandbox-harness.sh
 mcp-roundtrip.sh
 mcp-report.mjs
 *.mcpb

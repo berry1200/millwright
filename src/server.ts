@@ -4,6 +4,12 @@ import { runCommand } from "./shell-tools.js";
 import { patchFile } from "./file-tools.js";
 import { jobManager } from "./job-manager.js";
 import {
+  sandboxEnabled,
+  isDockerAvailable,
+  jobRunInvocation,
+  SANDBOX_UNAVAILABLE_MSG,
+} from "./sandbox.js";
+import {
   listRosNodes,
   getRosGraph,
   sampleRosTopic,
@@ -16,7 +22,7 @@ import {
 export function buildServer(): McpServer {
   const server = new McpServer({
     name: "millwright",
-    version: "0.3.0",
+    version: "0.4.0",
   });
 
   // ---- Layer 1: general Linux execution ----------------------------------
@@ -80,6 +86,26 @@ export function buildServer(): McpServer {
     // Destructive: it executes an arbitrary command, same trust level as run_command.
     { title: "Start background job", readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
     async ({ command, args, name }) => {
+      // Sandbox lane: each background job is its own attached `docker run`
+      // (SIGINT proxies to the container; --rm cleans up), so JobManager's
+      // spawn/log/stop semantics carry over unchanged. Fails closed like
+      // run_command when Docker is unavailable.
+      if (sandboxEnabled()) {
+        if (!(await isDockerAvailable())) {
+          return {
+            content: [
+              { type: "text", text: JSON.stringify({ sandbox_available: false, message: SANDBOX_UNAVAILABLE_MSG }) },
+            ],
+          };
+        }
+        const inv = jobRunInvocation(command, args);
+        const job = jobManager.start(inv.cmd, inv.args, name, undefined, inv.containerName);
+        return {
+          content: [
+            { type: "text", text: JSON.stringify({ job_id: job.id, status: job.status, sandboxed: true }) },
+          ],
+        };
+      }
       const job = jobManager.start(command, args, name);
       return { content: [{ type: "text", text: JSON.stringify({ job_id: job.id, status: job.status }) }] };
     }

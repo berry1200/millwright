@@ -313,6 +313,42 @@ Tools currently registered:
      it when the user means their own machine; README tells users to name
      the extension in first prompts. Keep this in mind for any future
      generically-named tool.
+- **Docker sandbox validated live (2026-07-19)** via `sandbox-harness.sh`
+  (one process per scenario; real containers on Docker 29.6.1 via Docker
+  Desktop WSL integration — enabled during this session by setting
+  `EnableIntegrationWithDefaultWslDistro: true` in Docker's
+  settings-store.json). Scenario results:
+  - *off*: byte-identical legacy behavior (host kernel, no allowlist).
+  - *unavailable* (poisoned DOCKER_HOST): fails CLOSED with guidance;
+    the probe command never executed.
+  - *workbench*: exec in Ubuntu 24.04 container as root; workspace mount
+    visible; container REUSED across calls (same hostname); `docker
+    inspect` confirms Memory=2147483648, Pids=512; blocklist still active;
+    network default reachable; `WORKBENCH_NETWORK=none` -> "Network is
+    unreachable". Timeout: `sleep 30` under a 3s budget returned in 3.2s
+    with exitCode 124 + timedOut, and the inner process was killed by the
+    container-side coreutils timeout.
+  - *allowlist*: patch inside ws applies; outside ws refused byte-intact;
+    sandbox-on-without-workspace_dir refused with actionable guidance
+    while run_command still works (no mount).
+  - *jobs*: attached `docker run` streams logs into JobManager; stop
+    terminates AND removes the container; `--rm` cleans; status reports
+    `killed` for deliberate stops.
+  - *build lane*: create-outside-ws refused; full break/fix loop ran in
+    `ros:lyrical-ros-base` with network=none (success 1.6s, real gcc
+    error through the container, fix, success); artifacts visible AND
+    deletable on the host.
+  - Leak check after every scenario: zero `millwright-*` containers.
+  **Three real bugs the harness caught (all fixed + re-verified):**
+  (1) stopping a sandboxed job stranded its container — PID-1 bash
+  ignores SIGINT, SIGKILL only killed the docker client; fixed with
+  `--init` + force-remove-by-name on stop + a session-label exit sweep.
+  (2) zombie processes accumulated in the workbench after timeouts —
+  PID-1 `sleep infinity` reaps nothing; fixed with `--init` (tini).
+  (3) build artifacts landed ROOT-OWNED in the mounted workspace (host
+  user couldn't delete build/COLCON_IGNORE); fixed by running the build
+  container as the host uid:gid. NOT re-run post-sandbox: the ROS
+  introspection harness (that lane doesn't touch sandbox code paths).
 
 ## Roadmap (priority order)
 
@@ -362,10 +398,19 @@ Tools currently registered:
    bumped to 0.2.0 (package.json, manifest, serverInfo).
 6. **Make the blocklist a configurable policy** (JSON/YAML), not
    hardcoded in `shell-tools.ts`.
-7. **Docker sandboxing for `run_command`** — run the target environment
-   in a container, bind-mount the working dir, so `apt-get` and system
-   changes are contained. This is the real safety layer; the blocklist
-   is a stopgap until this lands.
+7. **[DONE 2026-07-19] Docker sandboxing** — implemented per the approved
+   spec in `docs/sandboxing.md` (v0.4.0, `src/sandbox.ts`). Default-on
+   (`sandbox_mode=docker`): run_command + background jobs execute in a
+   per-session `ubuntu:24.04` workbench (`--init`, `--memory 2g`,
+   `--pids-limit 512`, workspace mounted at the identical path, container
+   reused across calls, session-labeled + swept on exit); patch_file and
+   create_ros_package are confined to `workspace_dir`; Linux colcon builds
+   run in `ros:<distro>-ros-base` with `--network=none`, `--init`, and the
+   HOST uid:gid; Windows builds stay host-side with a mandatory per-call
+   warning; Docker-unavailable fails CLOSED with guidance. Timeouts are
+   enforced INSIDE the container (coreutils `timeout`), because killing
+   the docker client alone leaves the inner process running. Validated
+   live against real containers — see "Testing done so far".
 8. **Gazebo/IsaacSim-specific tools** — `spawn_model`, `reset_pose`,
    `pause_physics`. Build after ROS layer is verified against turtlesim.
 9. **Dashboard** (Claude Design candidate, not yet) — job status, ROS
@@ -376,16 +421,16 @@ Tools currently registered:
 
 The .mcpb installs and runs, but do NOT hand this to strangers yet:
 
-1. **No sandbox behind a one-click install.** `run_command` + `patch_file`
-   execute/edit as the OS user with no path scoping. Sandboxing is now
-   prioritized AHEAD of the blocklist-policy roadmap item — design doc at
-   `docs/sandboxing.md` (pending review before implementation). The
-   one-click install makes this WORSE than the manual config, because it
-   removes the natural technical filter on who installs it.
-   *(Partial mitigation 2026-07-18: blocklist extended to catch `rm -rf
-   ~`/`$HOME`/`/*`/`/home` incl. separated flags, verified both directions
-   — explicitly a stopgap; `cd / && rm -rf .`, variables, and encodings
-   still pass by design.)*
+1. ~~No sandbox behind a one-click install~~ **LARGELY RESOLVED
+   2026-07-19**: Docker sandbox implemented and validated, default-on
+   (see roadmap #7 and `docs/sandboxing.md`). Remaining honest gaps:
+   Windows builds run on the host (per-call warning); ROS
+   introspection/launch stays host-side by design (structured commands,
+   owned-process boundary); `sandbox_mode: off` restores the old
+   unsandboxed behavior; workbench runs as root inside the container, so
+   files it writes into the mounted workspace are root-owned on the host
+   (build lane fixed to host uid:gid; workbench kept root so apt works —
+   documented tradeoff).
 2. **Single-environment validation**: Ubuntu 26.04 + Lyrical + WSL2 only.
    Jazzy/Humble "supported" via ros_setup_script but never actually run;
    plain-Linux Claude Desktop untested. *(macOS: resolved 2026-07-18 by

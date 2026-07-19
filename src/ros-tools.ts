@@ -3,6 +3,14 @@ import { promisify } from "node:util";
 import { mkdir } from "node:fs/promises";
 import { jobManager } from "./job-manager.js";
 import { truncateOutput } from "./shell-tools.js";
+import {
+  sandboxEnabled,
+  isDockerAvailable,
+  isInsideWorkspace,
+  buildRunInvocation,
+  forceRemoveContainer,
+  SANDBOX_UNAVAILABLE_MSG,
+} from "./sandbox.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -298,6 +306,13 @@ export async function createRosPackage(
   nodeName?: string
 ) {
   if (!(await isRos2Available())) return { available: false, message: ROS_NOT_AVAILABLE_MSG };
+  // Sandbox allowlist: scaffolding writes files, so the destination must be
+  // inside the configured workspace when sandboxing is on - same rule as
+  // patch_file (one folder, one mental model).
+  if (sandboxEnabled()) {
+    const gate = await isInsideWorkspace(destinationDirectory);
+    if (!gate.ok) return { available: true, created: false, reason: gate.reason };
+  }
   // When the sourcing wrapper is active, mkdir happens inside the wrapper
   // script - destinationDirectory may be a WSL-internal path the host Node
   // can't create. Direct mode keeps the old Node-side mkdir.
@@ -345,12 +360,73 @@ export async function createRosPackage(
  * exits (unlike a launch/sim), so this is a blocking call with a timeout rather
  * than a JobManager job. For very large workspaces, raise timeout_ms.
  */
+const WINDOWS_BUILD_WARNING =
+  "UNSANDBOXED BUILD: on Windows this build ran on the host (inside WSL), NOT in a " +
+  "container - arbitrary code in the workspace's CMakeLists.txt/setup.py executed with " +
+  "your user's privileges. This is the documented v1 Windows limitation (docs/sandboxing.md). " +
+  "Only build workspaces whose build files you trust.";
+
 export async function buildRosWorkspace(
   workspacePath: string,
   packages: string[] = [],
   timeoutMs = 600000
 ) {
+  // Sandbox lane (default). Linux hosts: build inside the official
+  // ros:<distro>-ros-base container with --network=none (builds need the ROS
+  // install and the workspace - not DDS, not the internet). Windows hosts:
+  // the v1 carve-out - host build with a MANDATORY per-call warning.
+  if (sandboxEnabled()) {
+    if (!IS_WINDOWS) {
+      if (!(await isDockerAvailable())) return { available: false, message: SANDBOX_UNAVAILABLE_MSG };
+      const distro = ROS_SETUP_SCRIPT?.match(/\/opt\/ros\/([a-z0-9_]+)\//)?.[1];
+      if (!distro) {
+        return {
+          available: true,
+          success: false,
+          reason:
+            "Sandboxed builds pick the container image from ros_setup_script " +
+            "(/opt/ros/<distro>/setup.bash -> ros:<distro>-ros-base). Set ros_setup_script, " +
+            "or set sandbox_mode to 'off' to build on the host.",
+        };
+      }
+      const colconArgs = ["build", ...(packages.length ? ["--packages-select", ...packages] : [])];
+      const inv = buildRunInvocation(distro, workspacePath, colconArgs);
+      try {
+        const { stdout, stderr } = await execFileAsync(inv.cmd, inv.args, {
+          timeout: timeoutMs,
+          maxBuffer: 10 * 1024 * 1024,
+        });
+        return {
+          available: true,
+          success: true,
+          sandboxed: true,
+          image: `ros:${distro}-ros-base`,
+          network: "none",
+          exitCode: 0,
+          stdout: truncateOutput(stdout),
+          stderr: truncateOutput(stderr),
+        };
+      } catch (err: any) {
+        // A killed docker-run CLIENT leaves the container going; remove it by
+        // name so a timed-out build can't keep compiling in the background.
+        if (err.killed) forceRemoveContainer(inv.containerName);
+        return {
+          available: true,
+          success: false,
+          sandboxed: true,
+          image: `ros:${distro}-ros-base`,
+          exitCode: err.code ?? 1,
+          timedOut: Boolean(err.killed),
+          stdout: truncateOutput(err.stdout ?? ""),
+          stderr: truncateOutput(err.stderr ?? err.message),
+        };
+      }
+    }
+    // Windows: fall through to the host build below, then attach the warning.
+  }
+
   if (!(await isColconAvailable())) return { available: false, message: COLCON_NOT_AVAILABLE_MSG };
+  const windowsCarveOut = sandboxEnabled() && IS_WINDOWS;
   const args = ["colcon", "build"];
   if (packages.length) args.push("--packages-select", ...packages);
   try {
@@ -365,6 +441,7 @@ export async function buildRosWorkspace(
     return {
       available: true,
       success: true,
+      ...(windowsCarveOut ? { sandboxed: false, warning: WINDOWS_BUILD_WARNING } : {}),
       exitCode: 0,
       stdout: truncateOutput(stdout),
       stderr: truncateOutput(stderr),
@@ -373,6 +450,7 @@ export async function buildRosWorkspace(
     return {
       available: true,
       success: false,
+      ...(windowsCarveOut ? { sandboxed: false, warning: WINDOWS_BUILD_WARNING } : {}),
       exitCode: err.code ?? 1,
       timedOut: Boolean(err.killed),
       stdout: truncateOutput(err.stdout ?? ""),

@@ -84,7 +84,7 @@ Windows, `.mcpb` frequently has no file association, so Windows shows an
 "open with" app picker that doesn't list Claude Desktop and the double-click
 goes nowhere — observed on a real install.
 
-The install dialog prompts for three optional settings:
+The install dialog prompts for these optional settings:
 
 - **ROS 2 setup script path** — e.g. `/opt/ros/lyrical/setup.bash` (works for
   `jazzy`/`humble` too). The server sources it before every ROS command, so
@@ -94,6 +94,15 @@ The install dialog prompts for three optional settings:
 - **WSL distro** (Windows only) — where ROS lives; default `Ubuntu`.
 - **Shell for run_command** — default `bash`; on Windows point it at Git
   Bash if `bash` isn't on PATH.
+- **Sandbox mode** — `docker` (default: commands run in containers, edits
+  confined to the workspace) or `off` (everything runs directly on your
+  machine). Needs Docker if left on — on Windows, Docker Desktop with WSL
+  integration enabled for your distro.
+- **Workspace folder** — the project directory Millwright works in: mounted
+  into sandbox containers and the only place file edits are allowed while
+  sandboxing is on. On Windows pick a folder inside WSL (`\\wsl.localhost\…`).
+- **Sandbox network** — `all` (default) or `none` for the workbench;
+  builds are always network-isolated regardless.
 
 Leave the setup script blank if you don't use ROS: the Linux tools work
 independently, and ROS tools reply with a clear `available: false` message.
@@ -134,11 +143,15 @@ own** — no telemetry, no analytics, no external services, no phoning home.
 Concretely, here is everything it touches:
 
 - **Filesystem**: `patch_file` reads and writes files at paths the model asks
-  for; `run_command` and background jobs can do whatever the shell user can.
-  Access is limited only by your OS user's permissions — there is currently
-  **no path allowlist or sandbox** (see Safety model and Roadmap).
-- **Process execution**: `run_command`, background jobs, and the ROS tools
-  execute real commands (`bash`, `ros2`, `colcon`) locally, as your user.
+  for. With sandboxing on (the default), edits are restricted to your
+  configured workspace folder; with `sandbox_mode: off`, access is limited
+  only by your OS user's permissions.
+- **Process execution**: with sandboxing on, `run_command` and background
+  jobs execute inside Docker containers (resource-limited, workspace-mounted);
+  ROS introspection commands (`ros2`) run locally as your user, and on Linux
+  `colcon` builds run in a network-isolated container. With `sandbox_mode:
+  off` — or for builds on Windows, where the result carries an explicit
+  warning — commands run directly as your user.
 - **ROS 2 data**: the ROS tools read node names, topic names, and message
   contents from your local ROS 2 domain, and can start/stop ROS processes.
 - **In-memory state**: background-job logs (last 2000 lines per job) are held
@@ -161,9 +174,19 @@ like anything else you'd paste into chat.
   `start_ros_launch_job`). It refuses to kill processes it doesn't own — a
   deliberate boundary, not a limitation.
 - **Bounded output everywhere**, so a runaway log or build can't blow the model's context.
-- **Starter command blocklist** (`rm -rf /`, `mkfs`, `dd … of=/dev/…`, fork bombs)
-  as a backstop. Real isolation is meant to come from running the server inside a
-  container (roadmap).
+- **Docker sandbox, on by default.** Shell commands and background jobs run in
+  an `ubuntu:24.04` workbench container (memory- and pid-limited) with only
+  your workspace folder mounted; on Linux, `colcon` builds run in the official
+  `ros:<distro>-ros-base` image with **no network**. File edits are confined
+  to the workspace. If Docker isn't available, these tools **fail closed**
+  with instructions rather than silently running unsandboxed. Set
+  `sandbox_mode: off` to opt out. Full design: [`docs/sandboxing.md`](./docs/sandboxing.md).
+- **⚠️ Windows limitation**: `colcon` builds run on the host (inside WSL),
+  not in a container — a hostile `CMakeLists.txt` executes with your user's
+  privileges. Every unsandboxed build result says so explicitly. Only build
+  workspaces whose build files you trust.
+- **Starter command blocklist** (`rm -rf /` and `~`-targeting variants, `mkfs`,
+  `dd … of=/dev/…`, fork bombs) as a backstop when the sandbox is off.
 
 ## Development
 
@@ -176,10 +199,11 @@ node harness.mjs            # ROS tools vs. a live turtlesim
 node patch-harness.mjs      # patch_file on real files
 node workspace-harness.mjs  # create -> patch -> build develop loop with colcon
 bash mcp-roundtrip.sh       # raw JSON-RPC over stdio (spawns dist/index.js)
+bash sandbox-harness.sh     # Docker sandbox: workbench, limits, network, builds
 ```
 
 ## Roadmap
 
 See [`CLAUDE.md`](./CLAUDE.md) for the full, prioritized roadmap. Next up:
-make the blocklist a configurable policy, Docker sandboxing for `run_command`,
-Gazebo/Isaac Sim tools, and a status dashboard.
+make the blocklist a configurable policy, Gazebo/Isaac Sim tools, and a
+status dashboard.

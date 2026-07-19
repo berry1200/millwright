@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { sandboxEnabled, ensureWorkbench, workbenchExecInvocation } from "./sandbox.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -35,6 +36,40 @@ const SHELL_BIN = process.env.SHELL_BIN || "bash";
 export async function runCommand(command: string, timeoutMs = 30000, cwd?: string) {
   const blocked = isCommandBlocked(command);
   if (blocked) return { blocked: true, reason: blocked };
+
+  // Sandbox lane (default): execute inside the session's workbench container.
+  // Fails CLOSED with guidance when Docker is unavailable - no silent
+  // fallthrough to unsandboxed execution (see docs/sandboxing.md).
+  if (sandboxEnabled()) {
+    const gate = await ensureWorkbench();
+    if (!gate.ok) return { blocked: false, sandbox_available: false, message: gate.message };
+    const inv = workbenchExecInvocation(gate.container, command, timeoutMs, cwd);
+    try {
+      const { stdout, stderr } = await execFileAsync(inv.cmd, inv.args, {
+        timeout: inv.clientTimeoutMs,
+        maxBuffer: 10 * 1024 * 1024,
+      });
+      return {
+        blocked: false,
+        sandboxed: true,
+        exitCode: 0,
+        stdout: truncateOutput(stdout),
+        stderr: truncateOutput(stderr),
+      };
+    } catch (err: any) {
+      // Exit 124 = the container-side coreutils `timeout` fired. That inner
+      // timeout is the real enforcement - killing only the docker-exec client
+      // would leave the process running inside the container.
+      return {
+        blocked: false,
+        sandboxed: true,
+        exitCode: err.code ?? 1,
+        stdout: truncateOutput(err.stdout ?? ""),
+        stderr: truncateOutput(err.stderr ?? err.message),
+        timedOut: err.code === 124 || Boolean(err.killed),
+      };
+    }
+  }
 
   try {
     const { stdout, stderr } = await execFileAsync(SHELL_BIN, ["-lc", command], {
