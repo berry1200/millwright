@@ -2,6 +2,7 @@ import { execFile, spawnSync } from "node:child_process";
 import { promisify } from "node:util";
 import { randomUUID } from "node:crypto";
 import { realpath } from "node:fs/promises";
+import { readdirSync, existsSync } from "node:fs";
 import path from "node:path";
 
 const execFileAsync = promisify(execFile);
@@ -255,10 +256,18 @@ export async function isInsideWorkspace(candidate: string): Promise<
   for (const root of roots) {
     try {
       const rootReal = await realpath(root);
-      if (
-        norm(real) === norm(rootReal) ||
-        norm(real).startsWith(norm(rootReal + path.sep))
-      ) {
+      if (norm(real) === norm(rootReal)) {
+        // GUARD (incident 2026-07-19): the workspace ROOT directory itself is
+        // never an operable target - Millwright acts only on paths strictly
+        // BENEATH it, and never edits or removes the workspace directory.
+        return {
+          ok: false,
+          reason:
+            `refused: '${candidate}' resolves to the workspace ROOT itself. Millwright only ` +
+            `operates on paths strictly beneath the workspace, never on the root directory.`,
+        };
+      }
+      if (norm(real).startsWith(norm(rootReal + path.sep))) {
         return { ok: true };
       }
     } catch {
@@ -271,6 +280,50 @@ export async function isInsideWorkspace(candidate: string): Promise<
       `refused: '${candidate}' is outside the configured workspace (${RAW_WORKSPACE_DIR}). ` +
       `The sandbox restricts edits to the workspace; set sandbox_mode to 'off' to lift this.`,
   };
+}
+
+// ---- blast-radius guard ----------------------------------------------------
+
+let scopeWarningCache: string | null | undefined;
+
+/**
+ * Non-fatal warning when `workspace_dir` is dangerously BROAD (incident
+ * 2026-07-19: it was set to `~/projects`, the parent of every project). Because
+ * the workspace is bind-mounted into the sandbox and bind mounts are
+ * pass-through, a single destructive command inside the container hits real
+ * host files across EVERY project under the mount - and the blocklist only
+ * guards top-level paths, not `rm -rf <workspace>/<some_project>`. Scoping
+ * `workspace_dir` to a single project is the real mitigation; this surfaces the
+ * risk in tool results. Cached (one filesystem probe per process).
+ */
+export function workspaceScopeWarning(): string | null {
+  if (scopeWarningCache !== undefined) return scopeWarningCache;
+  scopeWarningCache = null;
+  if (!sandboxEnabled() || !RAW_WORKSPACE_DIR) return scopeWarningCache;
+  const posix = workspaceMountPath() || RAW_WORKSPACE_DIR;
+  const broad = ["/", "/home", "/root", "/mnt", "/mnt/c", "/tmp", "/usr", "/var"];
+  if (broad.includes(posix)) {
+    scopeWarningCache =
+      `workspace_dir is '${posix}', a very broad location. Everything under it is writable ` +
+      `inside the sandbox; scope workspace_dir to a single project directory.`;
+    return scopeWarningCache;
+  }
+  // Parent-of-many-repos: if the workspace directly contains >=2 independent
+  // git repos, it's almost certainly a projects-parent, not a single project.
+  try {
+    const kids = readdirSync(RAW_WORKSPACE_DIR, { withFileTypes: true }).filter((d) => d.isDirectory());
+    const repos = kids.filter((d) => existsSync(path.join(RAW_WORKSPACE_DIR, d.name, ".git"))).length;
+    if (repos >= 2) {
+      scopeWarningCache =
+        `workspace_dir '${posix}' contains ${repos} separate git repositories - it looks like a ` +
+        `parent of multiple projects, not one project. A destructive command inside the sandbox ` +
+        `would reach ALL of them (bind mounts are pass-through). Strongly recommend scoping ` +
+        `workspace_dir to a single project directory to limit blast radius.`;
+    }
+  } catch {
+    // unreadable workspace - nothing to warn about here
+  }
+  return scopeWarningCache;
 }
 
 // ---- cleanup ---------------------------------------------------------------

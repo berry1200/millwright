@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { sandboxEnabled, ensureWorkbench, workbenchExecInvocation } from "./sandbox.js";
+import { sandboxEnabled, ensureWorkbench, workbenchExecInvocation, workspaceScopeWarning } from "./sandbox.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -43,6 +43,7 @@ export async function runCommand(command: string, timeoutMs = 30000, cwd?: strin
   if (sandboxEnabled()) {
     const gate = await ensureWorkbench();
     if (!gate.ok) return { blocked: false, sandbox_available: false, message: gate.message };
+    const warn = workspaceScopeWarning();
     const inv = workbenchExecInvocation(gate.container, command, timeoutMs, cwd);
     try {
       const { stdout, stderr } = await execFileAsync(inv.cmd, inv.args, {
@@ -52,6 +53,7 @@ export async function runCommand(command: string, timeoutMs = 30000, cwd?: strin
       return {
         blocked: false,
         sandboxed: true,
+        ...(warn ? { workspace_warning: warn } : {}),
         exitCode: 0,
         stdout: truncateOutput(stdout),
         stderr: truncateOutput(stderr),
@@ -63,6 +65,7 @@ export async function runCommand(command: string, timeoutMs = 30000, cwd?: strin
       return {
         blocked: false,
         sandboxed: true,
+        ...(warn ? { workspace_warning: warn } : {}),
         exitCode: err.code ?? 1,
         stdout: truncateOutput(err.stdout ?? ""),
         stderr: truncateOutput(err.stderr ?? err.message),

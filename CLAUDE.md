@@ -452,6 +452,50 @@ Tools currently registered:
    graph, log tail. Sequence this AFTER the ROS layer is verified live —
    don't build a UI for data we haven't confirmed is real.
 
+## INCIDENT 2026-07-19 — a project directory was emptied (read this)
+
+`~/projects/vigil247` was emptied ~09:06 in a separate Claude Desktop session
+running Millwright 0.4.0, with `workspace_dir` set to **`~/projects`** — the
+parent of ALL projects. Millwright was a suspect. Investigation outcome:
+
+- **Millwright's shipped code contains NO file-deletion logic.** Deterministic
+  source audit: every destructive op is `docker rm -f <container>` /
+  `docker run --rm` (containers by name/ID) — no `rm` of files, no `git clean`,
+  no `docker volume prune`, no `fs.rm`/`unlink` against any path. The
+  session-label cleanup sweep and force-remove operate on container IDs only.
+- **Ruled out**: colcon-build-against-parent (no `build/install/log` artifacts
+  at `~/projects` root); vigil247 is a Python project, not ROS, so ROS tools
+  weren't operating on it.
+- **Could NOT determine root cause.** vigil247 was restored from a backup zip
+  at 10:08 (its own GitHub repo `berry1200/vigil247` exists), which overwrote
+  the original inode/state; Docker WSL integration was off and events were
+  gone; the incident session's tool calls were non-interactive + containerized
+  so they never hit `~/.bash_history` (which showed only the user's own
+  interactive recovery: `rm -rf vigil247` + unzip). **Honest answer: I cannot
+  confirm whether Millwright issued the deleting command.**
+- **The real design flaw, independent of what fired**: a whole-`~/projects`
+  bind mount is pass-through, so ANY destructive command inside the sandbox
+  (`rm -rf <mount>/<project>`, `git clean`, etc.) deletes real host files
+  across every project, and the blocklist does NOT catch deep/relative targets
+  like `rm -rf vigil247` (it only guards `/`, `~`, `$HOME`, `/home`).
+
+**Fixes shipped in 0.4.1 (2026-07-19):**
+- `isInsideWorkspace` now refuses the workspace ROOT itself (patch_file /
+  create_ros_package operate only on paths strictly beneath it). Unit-verified.
+- `workspaceScopeWarning()`: run_command results carry a `workspace_warning`
+  when `workspace_dir` is broad (a home/root location, or a parent containing
+  ≥2 git repos). Verified it flags the actual `~/projects` config.
+- `run_command` description rewritten (see #9 below) — the 0.3.0 "runs on your
+  REAL system" text was false under default sandboxing and caused the confusion
+  in that session.
+
+**Still-open mitigations (NOT yet done — these are the real fix):**
+- A guard on the root dir does NOT stop `rm -rf <ws>/<child>`; the only robust
+  protections are (a) scoping `workspace_dir` to a SINGLE project (strongly
+  recommend to the user), and (b) a future non-passthrough mount (copy-in /
+  overlay) so container writes don't hit host files directly. Consider making a
+  broad `workspace_dir` a hard refusal (currently only a warning) — ASK first.
+
 ## Distribution readiness — honest blockers (as of 2026-07-18)
 
 The .mcpb installs and runs, but do NOT hand this to strangers yet:

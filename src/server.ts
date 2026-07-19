@@ -22,18 +22,22 @@ import {
 export function buildServer(): McpServer {
   const server = new McpServer({
     name: "millwright",
-    version: "0.4.0",
+    version: "0.4.1",
   });
 
   // ---- Layer 1: general Linux execution ----------------------------------
 
   server.tool(
     "run_command",
-    "Runs a shell command on the user's REAL system (their actual machine/WSL " +
-      "environment - not a simulated or built-in sandbox; prefer this whenever the " +
-      "user means their own machine) and returns stdout/stderr/exit code. Blocking, " +
-      "bounded output, hard timeout. For anything long-running (servers, launches, " +
-      "sims) use start_background_job instead.",
+    "Runs a shell command for the user's own project environment (prefer this over any " +
+      "built-in/simulated sandbox when the user means their machine) and returns " +
+      "stdout/stderr/exit code. WHERE it runs depends on the sandbox_mode setting: by " +
+      "DEFAULT ('docker') the command runs INSIDE a Docker container with the user's " +
+      "workspace folder bind-mounted - writes to the workspace are real, but the rest of " +
+      "the host is not visible and installed tools/state are the container's, not the " +
+      "host's; with sandbox_mode 'off' it runs directly on the host as the user. The " +
+      "result's `sandboxed` field reports which happened. Blocking, bounded output, hard " +
+      "timeout. For anything long-running use start_background_job instead.",
     {
       command: z.string().describe("The shell command to run."),
       timeout_ms: z.number().default(30000).describe("Hard timeout in milliseconds."),
