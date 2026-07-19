@@ -1,0 +1,147 @@
+// ADVERSARIAL harness: genuinely tries to break OUT of the sandbox and reports
+// PASS (attack contained) / **FAIL** (attack succeeded) for each. Config comes
+// from env at import time; drive with adversarial-harness.sh. Linux-host paths.
+import { writeFile, mkdir, rm, readFile, symlink, access } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+import { setTimeout as sleep } from "node:timers/promises";
+
+const pexec = promisify(execFile);
+const scenario = process.argv[2];
+const hr = (t) => console.log("\n===== " + t + " =====");
+const verdict = (ok, label, detail) =>
+  console.log(`${ok ? "PASS" : "**FAIL**"}  ${label}${detail ? "  — " + detail : ""}`);
+
+const { runCommand } = await import("./dist/shell-tools.js");
+const { patchFile } = await import("./dist/file-tools.js");
+
+const WS = process.env.WORKSPACE_DIR || "/tmp/mw_ws";
+
+if (scenario === "traversal") {
+  hr("patch_file path traversal (workspace = " + WS + ")");
+  await mkdir(WS, { recursive: true });
+  const before = await readFile("/etc/passwd", "utf8");
+  const cases = [
+    `${WS}/../../../etc/passwd`,
+    `${WS}/../../../../../../etc/passwd`,
+    `${WS}/./../mw_ws/../../etc/passwd`,
+    `${WS}/%2e%2e/%2e%2e/%2e%2e/etc/passwd`,
+    `${WS}_evil/passwd`,             // prefix-sibling trap (must NOT be treated as inside)
+    "/etc/passwd",                   // absolute, plainly outside
+  ];
+  for (const c of cases) {
+    const r = await patchFile(c, "root", "pwned");
+    verdict(r.applied === false, `refuse ${c}`, r.reason?.slice(0, 60));
+  }
+  const after = await readFile("/etc/passwd", "utf8");
+  verdict(before === after, "/etc/passwd byte-unchanged");
+} else if (scenario === "symlink") {
+  hr("patch_file via symlink escaping the workspace");
+  await mkdir(WS, { recursive: true });
+  const before = await readFile("/etc/passwd", "utf8");
+  await rm(`${WS}/passwd_link`, { force: true });
+  await rm(`${WS}/etclink`, { force: true });
+  await symlink("/etc/passwd", `${WS}/passwd_link`);       // file symlink -> outside
+  await symlink("/etc", `${WS}/etclink`);                   // dir symlink -> outside
+  const r1 = await patchFile(`${WS}/passwd_link`, "root", "pwned");
+  verdict(r1.applied === false, "refuse file-symlink -> /etc/passwd", r1.reason?.slice(0, 55));
+  const r2 = await patchFile(`${WS}/etclink/passwd`, "root", "pwned");
+  verdict(r2.applied === false, "refuse dir-symlink -> /etc/passwd", r2.reason?.slice(0, 55));
+  const after = await readFile("/etc/passwd", "utf8");
+  verdict(before === after, "/etc/passwd byte-unchanged");
+} else if (scenario === "escape") {
+  hr("run_command trying to reach the host from inside the workbench");
+  // Sentinel on the WSL host, OUTSIDE the mounted workspace.
+  await writeFile("/tmp/mw_host_secret.txt", "TOP-SECRET-HOST-ONLY\n");
+  const sees = await runCommand("cat /tmp/mw_host_secret.txt 2>&1 || echo NOT_VISIBLE");
+  verdict(!/(TOP-SECRET)/.test(sees.stdout || ""), "host file outside mount NOT visible", (sees.stdout || "").trim());
+  const sock = await runCommand("ls -la /var/run/docker.sock 2>&1 || echo NO_SOCKET");
+  verdict(/NO_SOCKET|No such/.test(sock.stdout || ""), "docker socket absent", (sock.stdout || "").trim());
+  const dcli = await runCommand("command -v docker || echo NO_DOCKER_CLI");
+  verdict(/NO_DOCKER_CLI/.test(dcli.stdout || ""), "docker CLI absent in container", (dcli.stdout || "").trim());
+  const up = await runCommand(`ls -a ${WS}/../ 2>&1 | head -5`);
+  console.log("     info: contents of mount-parent inside container:", JSON.stringify((up.stdout || "").trim()));
+  const root = await runCommand("cat /etc/hostname && echo --- && ls / | tr '\\n' ' '");
+  console.log("     info: container hostname + / listing:", JSON.stringify((root.stdout || "").trim()));
+  const priv = await runCommand("cat /proc/1/root/etc/hostname 2>&1 | head -1 || echo BLOCKED");
+  console.log("     info: /proc/1/root probe:", JSON.stringify((priv.stdout || "").trim()));
+} else if (scenario === "hostile-build") {
+  hr("hostile CMakeLists: network (--network=none) + write-outside attempts");
+  const { createRosPackage, buildRosWorkspace } = await import("./dist/ros-tools.js");
+  const BWS = "/tmp/mw_hostile_ws";
+  await rm(BWS, { recursive: true, force: true });
+  await mkdir(`${BWS}/src`, { recursive: true });
+  await createRosPackage("evil", `${BWS}/src`, "ament_cmake", [], "n");
+  const cml = `${BWS}/src/evil/CMakeLists.txt`;
+  const hostile = `cmake_minimum_required(VERSION 3.8)
+project(evil)
+execute_process(COMMAND bash -c "curl -m 5 -s http://1.1.1.1 >/dev/null 2>&1 && echo NET_REACHED || echo NET_BLOCKED" OUTPUT_VARIABLE NET)
+execute_process(COMMAND bash -c "echo pwned > /etc/mw_pwned 2>/dev/null && echo ETC_WRITE_OK || echo ETC_WRITE_BLOCKED" OUTPUT_VARIABLE ETC)
+execute_process(COMMAND bash -c "echo pwned > /tmp/mw_host_escape.txt 2>/dev/null && echo TMP_WRITE_OK || echo TMP_WRITE_BLOCKED" OUTPUT_VARIABLE TMP)
+message(FATAL_ERROR "PROBE net=\${NET} etc=\${ETC} tmp=\${TMP}")
+`;
+  await writeFile(cml, hostile);
+  await rm("/tmp/mw_host_escape.txt", { force: true });
+  const b = await buildRosWorkspace(BWS);
+  const probe = (b.stderr || "").match(/PROBE[^\n]*/)?.[0] || "(probe line not found)";
+  console.log("     build probe:", probe);
+  verdict(/net=NET_BLOCKED/.test(b.stderr || ""), "network blocked at configure time");
+  verdict(/etc=ETC_WRITE_BLOCKED/.test(b.stderr || ""), "write to container /etc blocked (non-root)");
+  let hostEscaped = true;
+  try { await access("/tmp/mw_host_escape.txt"); } catch { hostEscaped = false; }
+  verdict(!hostEscaped, "no host file written outside the mount");
+  verdict(b.sandboxed === true, "build ran sandboxed", `image=${b.image} net=${b.network}`);
+  await rm(BWS, { recursive: true, force: true });
+} else if (scenario === "pids") {
+  hr("--pids-limit 512 under a real fork bomb (host-side measurement)");
+  const hostBefore = (await pexec("bash", ["-c", "ps -e | wc -l"])).stdout.trim();
+  // The workbench/job/build containers all carry --pids-limit 512 (confirmed by
+  // docker inspect). Proving it CONTAINS an attack needs a PERSISTENT bomb: a
+  // `docker exec` bomb's backgrounded children don't survive the exec exiting,
+  // and once a container saturates it can't fork its own measurement. So we
+  // launch a dedicated container with the SAME cap, a bomb that keeps PID 1
+  // alive, and read its pid count from the HOST while it runs. (The memory cap
+  // IS proven through the live run_command path - a foreground bomb survives to
+  // be OOM-killed; a pid bomb's children don't survive to be counted.)
+  await pexec("bash", ["-c", "docker rm -f mw_pidbomb >/dev/null 2>&1 || true"]);
+  await pexec("bash", [
+    "-c",
+    "docker run -d --name mw_pidbomb --init --pids-limit 512 --memory 2g ubuntu:24.04 " +
+      "bash -c 'for i in $(seq 2000); do sleep 300 & done; sleep 300'",
+  ]);
+  await sleep(4000);
+  const pids = (await pexec("bash", ["-c", "docker stats --no-stream --format '{{.PIDs}}' mw_pidbomb"])).stdout.trim();
+  const hostAfter = (await pexec("bash", ["-c", "ps -e | wc -l"])).stdout.trim();
+  const alive = (await pexec("bash", ["-c", "ps -e -o comm= | grep -cx turtlesim_node || true"])).stdout.trim();
+  await pexec("bash", ["-c", "docker rm -f mw_pidbomb >/dev/null 2>&1 || true"]);
+  console.log(`     dedicated container (cap 512, 2000 sleeps requested): host-side PIDs = ${pids}`);
+  console.log(`     host process count before/after: ${hostBefore} -> ${hostAfter}`);
+  verdict(Number(pids) === 512, "cap SATURATED at 512 - bomb contained (did not reach 2000)", `pids=${pids}`);
+  verdict(Number(hostAfter) < Number(hostBefore) + 100, "host process table not blown up");
+  verdict(alive === "1", "unrelated host process (turtlesim) still alive");
+} else if (scenario === "memory") {
+  hr("memory bomb vs --memory 2g (host must stay healthy)");
+  const freeBefore = (await pexec("bash", ["-c", "free -m | awk '/Mem:/{print $7}'"])).stdout.trim();
+  const maxProbe = await runCommand("cat /sys/fs/cgroup/memory.max");
+  const t0 = Date.now();
+  // `tail /dev/zero` buffers an infinite newline-less stream -> allocates fast;
+  // the cgroup OOM-killer should kill it (exit 137) at ~2g, host untouched.
+  const r = await runCommand("tail /dev/zero", 25000);
+  const oom = await runCommand("grep oom_kill /sys/fs/cgroup/memory.events 2>/dev/null || echo none");
+  console.log(`     memory.max=${(maxProbe.stdout||"").trim()}  attempt exit=${r.exitCode} timedOut=${r.timedOut} in ${Date.now() - t0}ms`);
+  console.log(`     cgroup memory.events oom: ${(oom.stdout||"").trim()}`);
+  await sleep(1500);
+  const freeAfter = (await pexec("bash", ["-c", "free -m | awk '/Mem:/{print $7}'"])).stdout.trim();
+  const alive = (await pexec("bash", ["-c", "ps -e -o comm= | grep -cx turtlesim_node || true"])).stdout.trim();
+  const still = await runCommand("echo container-still-responsive");
+  console.log(`     host available MB before/after: ${freeBefore} -> ${freeAfter}`);
+  const oomKilled = /oom_kill (\d+)/.exec(oom.stdout || "");
+  verdict(r.exitCode === 137 || (oomKilled && Number(oomKilled[1]) > 0), "attacker OOM-killed at the 2g cap (exit 137 / oom_kill>0)", `exit=${r.exitCode}`);
+  verdict(alive === "1", "unrelated host process (turtlesim) still alive");
+  verdict(/still-responsive/.test(still.stdout || ""), "sandbox still usable after the bomb");
+} else {
+  console.error("unknown scenario:", scenario);
+  process.exit(2);
+}
+console.log("\nADVERSARIAL SCENARIO DONE:", scenario);
+process.exit(0);

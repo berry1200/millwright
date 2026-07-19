@@ -37,18 +37,22 @@ History and rationale, so this doesn't get reopened:
 - The MCP tool names (`run_command`, `list_ros_nodes`, ...) were
   deliberately NOT renamed — they're API surface; renaming would break
   existing configs for zero benefit.
-- **Collision verification (done 2026-07-18, after the decision):** the
-  earlier "essentially clean" claim was WRONG for npm. Findings: (1) npm
-  `millwright` is taken by a JS build tool, dormant since March 2017
-  (alpha, 9 years untouched) — matters only if we ever publish to npm;
-  a scoped name (@berryjames/millwright) sidesteps it. (2) A March-2026
-  personal project "Millwright" by crertel (github.com/crertel/millwright,
-  minor.gripe blog) does agent tool-selection — SAME ecosystem
-  (MCP/agent tooling), but a months-old blog project with no visible
-  adoption. (3) A Vintage Story game mod + real-world trade firms —
-  irrelevant. Assessment: no blocker, but (2) is worth watching; if it
-  gains real traction the confusion risk in MCP circles grows. Decision
-  owner: Berry James — current call is to keep the name.
+- **Collision verification + conscious decision (2026-07-18/19).** The
+  earlier "essentially clean" claim was WRONG; verified across npm, GitHub,
+  and web:
+  - npm `millwright` is TAKEN (a JS build tool, dormant since March 2017).
+    Consequence: **if we ever publish to npm, publish scoped**
+    (`@berryjames/millwright` or similar), not bare `millwright`.
+  - `github.com/crertel/millwright` (crertel, minor.gripe blog, March 2026)
+    is an agent tool-selection system — **the SAME ecosystem** (MCP / agent
+    tooling). Currently a months-old personal project with no visible
+    adoption. **This is the one to watch**: it's the only name clash that
+    could actually cause confusion in our space.
+  - Others (a Vintage Story game mod, real-world trade firms) are irrelevant.
+  - **Decision (Berry James, 2026-07-19): keep Millwright.** No blocker
+    today. Revisit ONLY if crertel/millwright gains real traction — at that
+    point reassess whether a rename or clearer differentiation is worth it.
+    The trademark rationale (no ROS in the name) is unchanged and separate.
 
 ## Vision
 
@@ -347,8 +351,39 @@ Tools currently registered:
   PID-1 `sleep infinity` reaps nothing; fixed with `--init` (tini).
   (3) build artifacts landed ROOT-OWNED in the mounted workspace (host
   user couldn't delete build/COLCON_IGNORE); fixed by running the build
-  container as the host uid:gid. NOT re-run post-sandbox: the ROS
-  introspection harness (that lane doesn't touch sandbox code paths).
+  container as the host uid:gid.
+- **Adversarial validation (2026-07-19)** via `adversarial-harness.mjs` —
+  genuine break-out attempts, not just fence inspection. All contained:
+  - *patch_file path traversal*: `<ws>/../../../etc/passwd`, extra-depth,
+    `./`-normalized, `%2e%2e`-encoded, the prefix-sibling trap
+    (`/tmp/mw_ws_evil/...`), and bare `/etc/passwd` — ALL refused;
+    /etc/passwd byte-unchanged. (realpath + symlink resolution + `startsWith(root+sep)`.)
+  - *symlink escape*: a file-symlink and a dir-symlink inside the workspace
+    pointing at /etc — both refused (realpath resolves before the check).
+  - *workbench escape*: a host sentinel file outside the mount was NOT
+    visible in the container; `/var/run/docker.sock` absent; `docker` CLI
+    absent; `/proc/1/root` showed the container's own root, not the host.
+  - *hostile CMakeLists* (build lane): `curl` at configure time → network
+    unreachable (`--network=none`); write to container `/etc` → blocked
+    (non-root); no host file written outside the mount; build ran in
+    `ros:lyrical-ros-base`.
+  - *fork bomb* vs `--pids-limit 512`: a dedicated container requesting 2000
+    sleeps SATURATED at exactly 512 (host-side `docker stats`); host process
+    table unmoved; turtlesim alive. NOTE: a `docker exec` bomb's children
+    don't survive the exec exiting, and a saturated container can't fork its
+    own measurement — hence the dedicated-container + host-side measurement.
+  - *memory bomb* (`tail /dev/zero`) THROUGH run_command vs `--memory 2g`:
+    OOM-killed (exit 137, cgroup `oom_kill 1`) at the 2g cap; host memory
+    barely moved; sandbox still usable after.
+  - **The harness caught two of its own measurement flaws** (pgrep absent in
+    the minimal image; bash string-doubling too slow to reach 2g), both
+    fixed before any cap was reported as validated — i.e. no cap was
+    green-lit on a silent no-op. Honest residual gap: no `--cpus` cap in v1
+    (see Distribution readiness #1).
+- **ROS introspection harness re-run against 0.4.0 (2026-07-19)**: all five
+  tools green (list_ros_nodes, get_ros_graph incl. hidden, sample_ros_topic
+  both type args, start_ros_launch_job, restart_ros_node + refusal). Closes
+  the "not re-run post-sandbox" gap — that lane is unchanged by the sandbox.
 
 ## Roadmap (priority order)
 
@@ -430,7 +465,11 @@ The .mcpb installs and runs, but do NOT hand this to strangers yet:
    unsandboxed behavior; workbench runs as root inside the container, so
    files it writes into the mounted workspace are root-owned on the host
    (build lane fixed to host uid:gid; workbench kept root so apt works —
-   documented tradeoff).
+   documented tradeoff). Adversarially validated 2026-07-19 (six break-out
+   attempts, all contained — see "Testing done so far"). Remaining sandbox
+   gap: **no `--cpus` limit in v1**, so a CPU spinner degrades the shared
+   Docker Desktop VM (not the Windows host) for its duration — pids/memory
+   are capped, CPU is not. Candidate follow-up.
 2. **Single-environment validation**: Ubuntu 26.04 + Lyrical + WSL2 only.
    Jazzy/Humble "supported" via ros_setup_script but never actually run;
    plain-Linux Claude Desktop untested. *(macOS: resolved 2026-07-18 by
