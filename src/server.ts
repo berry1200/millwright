@@ -8,6 +8,7 @@ import {
   isDockerAvailable,
   jobRunInvocation,
   SANDBOX_UNAVAILABLE_MSG,
+  workspaceHardRefusal,
 } from "./sandbox.js";
 import {
   listRosNodes,
@@ -22,7 +23,7 @@ import {
 export function buildServer(): McpServer {
   const server = new McpServer({
     name: "millwright",
-    version: "0.4.1",
+    version: "0.4.2",
   });
 
   // ---- Layer 1: general Linux execution ----------------------------------
@@ -95,6 +96,12 @@ export function buildServer(): McpServer {
       // spawn/log/stop semantics carry over unchanged. Fails closed like
       // run_command when Docker is unavailable.
       if (sandboxEnabled()) {
+        const refusal = workspaceHardRefusal();
+        if (refusal) {
+          return {
+            content: [{ type: "text", text: JSON.stringify({ workspace_refused: true, message: refusal }) }],
+          };
+        }
         if (!(await isDockerAvailable())) {
           return {
             content: [

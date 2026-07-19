@@ -229,6 +229,8 @@ export async function isInsideWorkspace(candidate: string): Promise<
   { ok: true } | { ok: false; reason: string }
 > {
   if (!RAW_WORKSPACE_DIR) return { ok: false, reason: WORKSPACE_REQUIRED_MSG };
+  const refusal = workspaceHardRefusal();
+  if (refusal) return { ok: false, reason: refusal };
   const roots = [RAW_WORKSPACE_DIR];
   const posix = workspaceMountPath();
   if (IS_WINDOWS && posix && posix !== RAW_WORKSPACE_DIR) {
@@ -283,6 +285,36 @@ export async function isInsideWorkspace(candidate: string): Promise<
 }
 
 // ---- blast-radius guard ----------------------------------------------------
+
+// Locations too broad to EVER sandbox-mount: a destructive command inside the
+// container would reach the user's whole home/drive/filesystem. These are a
+// HARD REFUSAL (0.4.2) - a click-past warning isn't protection when there is no
+// legitimate use. A directory that merely holds several projects (e.g.
+// ~/projects) is NOT here: it's allowed with a loud warning instead, because
+// blocking it outright pushes people to disable sandboxing entirely.
+const DANGEROUS_ROOT_EXACT = new Set([
+  "/", "/home", "/root", "/mnt", "/mnt/wsl", "/mnt/wslg",
+  "/usr", "/var", "/etc", "/tmp", "/opt", "/bin", "/sbin",
+  "/lib", "/lib64", "/sys", "/proc", "/dev", "/boot", "/srv", "/run",
+]);
+
+/** Returns a refusal message if `workspace_dir` is a filesystem/drive/home
+ * root, else null. Enforced at every sandbox entry point. */
+export function workspaceHardRefusal(): string | null {
+  if (!sandboxEnabled() || !RAW_WORKSPACE_DIR) return null;
+  const p = (workspaceMountPath() || RAW_WORKSPACE_DIR).replace(/\/+$/, "") || "/";
+  const danger =
+    DANGEROUS_ROOT_EXACT.has(p) ||
+    /^\/home\/[^/]+$/.test(p) || // a user's home directory
+    /^\/mnt\/[^/]+$/.test(p); // a mounted Windows drive root (e.g. /mnt/c)
+  if (!danger) return null;
+  return (
+    `refused: workspace_dir is '${p}', a filesystem / drive / home root. Millwright will not ` +
+    `sandbox-mount a location this broad - a single destructive command would reach your entire ` +
+    `home or drive. Set workspace_dir to a specific project directory, or set sandbox_mode to ` +
+    `'off' if you knowingly accept running unsandboxed.`
+  );
+}
 
 let scopeWarningCache: string | null | undefined;
 

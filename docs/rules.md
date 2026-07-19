@@ -3,7 +3,7 @@
 Rules for anyone working on this codebase, human or AI. These exist because each
 one was learned the expensive way.
 
-**Last updated:** 2026-07-18
+**Last updated:** 2026-07-19
 
 ---
 
@@ -169,3 +169,30 @@ Rules for an AI agent (Claude Code or otherwise) working on this repo.
   never possessive. Use it descriptively only; never in a product name.
   Open Robotics' guidelines require written approval for product-name use, and
   such permission is revocable.
+
+---
+
+## 9. Incident response — snapshot before you restore
+
+Learned the expensive way on 2026-07-19: `~/projects/vigil247` was emptied during
+a sandboxed session, and the very first recovery step — restoring from
+`vigil247.zip` — recreated the directory (new inode, new birth time) and
+**overwrote the emptied state before anyone captured it.** With `--rm` containers
+already gone and Docker events not surviving daemon restarts, the root cause
+became undiagnosable. It cost the ability to answer "did our tool do this?"
+
+**Rule: when something is destroyed, SNAPSHOT first, restore second.** Recovery
+can wait five minutes; forensic evidence cannot be recreated. Before touching the
+damaged state:
+
+- Copy it as-is: `cp -a <dir> <dir>.forensic` or `tar czf incident.tgz <dir>`.
+- Capture `stat <dir>`, and the current wall-clock time.
+- Save `docker ps -a`, `docker inspect <container>`, and container logs **before**
+  anything with `--rm` reaps them.
+- Copy `~/.bash_history` (and note that a sandboxed tool's commands will NOT be
+  there — they ran non-interactively inside a container).
+- Only then restore.
+
+Corollary for the tool itself: this is *why* a broad `workspace_dir` is dangerous
+(§ safety) — a pass-through bind mount turns one bad command into real, immediate,
+multi-project host deletion, with the evidence gone the moment recovery starts.

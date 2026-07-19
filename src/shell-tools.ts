@@ -1,6 +1,12 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { sandboxEnabled, ensureWorkbench, workbenchExecInvocation, workspaceScopeWarning } from "./sandbox.js";
+import {
+  sandboxEnabled,
+  ensureWorkbench,
+  workbenchExecInvocation,
+  workspaceScopeWarning,
+  workspaceHardRefusal,
+} from "./sandbox.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -41,6 +47,8 @@ export async function runCommand(command: string, timeoutMs = 30000, cwd?: strin
   // Fails CLOSED with guidance when Docker is unavailable - no silent
   // fallthrough to unsandboxed execution (see docs/sandboxing.md).
   if (sandboxEnabled()) {
+    const refusal = workspaceHardRefusal();
+    if (refusal) return { blocked: false, workspace_refused: true, message: refusal };
     const gate = await ensureWorkbench();
     if (!gate.ok) return { blocked: false, sandbox_available: false, message: gate.message };
     const warn = workspaceScopeWarning();

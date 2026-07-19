@@ -478,23 +478,39 @@ parent of ALL projects. Millwright was a suspect. Investigation outcome:
   (`rm -rf <mount>/<project>`, `git clean`, etc.) deletes real host files
   across every project, and the blocklist does NOT catch deep/relative targets
   like `rm -rf vigil247` (it only guards `/`, `~`, `$HOME`, `/home`).
+- **FORENSICS LESSON (process fix).** The single most damaging move for the
+  investigation was restoring vigil247 from `vigil247.zip` at 10:08 — it
+  recreated the directory (new inode/birth time) and overwrote the emptied
+  state BEFORE anyone captured it. Combined with `--rm` containers already gone
+  and Docker events not surviving restarts, this left the root cause
+  undiagnosable. **Rule for next time: when something is destroyed, SNAPSHOT
+  first, restore second.** Concretely, before any recovery: copy the damaged
+  dir as-is (`cp -a`/tar), `stat` it, save `docker ps -a`/`docker inspect`
+  output and `~/.bash_history`, note the wall-clock time. Recovery can wait five
+  minutes; the evidence cannot. (Recorded here and worth adding to
+  `docs/rules.md`.)
 
-**Fixes shipped in 0.4.1 (2026-07-19):**
-- `isInsideWorkspace` now refuses the workspace ROOT itself (patch_file /
-  create_ros_package operate only on paths strictly beneath it). Unit-verified.
-- `workspaceScopeWarning()`: run_command results carry a `workspace_warning`
-  when `workspace_dir` is broad (a home/root location, or a parent containing
-  ≥2 git repos). Verified it flags the actual `~/projects` config.
-- `run_command` description rewritten (see #9 below) — the 0.3.0 "runs on your
-  REAL system" text was false under default sandboxing and caused the confusion
-  in that session.
+**Fixes shipped 0.4.1 → 0.4.2 (2026-07-19):**
+- **0.4.1** `isInsideWorkspace` refuses the workspace ROOT itself (patch_file /
+  create_ros_package act only on paths strictly beneath it). Unit-verified.
+- **0.4.1** `run_command` description rewritten — the 0.3.0 "runs on your REAL
+  system" text was false under default sandboxing and caused the confusion in
+  that session.
+- **0.4.2 broad-workspace split** (per user decision): `workspaceHardRefusal()`
+  HARD-REFUSES a filesystem/drive/home root (`/`, `/home`, `$HOME`, `/root`,
+  `/mnt/<drive>`) at every sandbox entry point (run_command, jobs, build,
+  patch/create) BEFORE Docker is touched — no click-past. A directory that
+  merely holds multiple repos (e.g. `~/projects`) is still ALLOWED (blocking it
+  would push users to disable sandboxing) but `workspaceScopeWarning()` now
+  rides in `run_command`/`build`/`create` RESULTS, not just startup. All
+  unit-verified without Docker.
 
-**Still-open mitigations (NOT yet done — these are the real fix):**
-- A guard on the root dir does NOT stop `rm -rf <ws>/<child>`; the only robust
-  protections are (a) scoping `workspace_dir` to a SINGLE project (strongly
-  recommend to the user), and (b) a future non-passthrough mount (copy-in /
-  overlay) so container writes don't hit host files directly. Consider making a
-  broad `workspace_dir` a hard refusal (currently only a warning) — ASK first.
+**Still-open (the real, harder fix):**
+- Even the root guard + hard-refusal does NOT stop `rm -rf <ws>/<child>` inside
+  an allowed multi-repo workspace. The only robust protections are (a) scoping
+  `workspace_dir` to a SINGLE project (user is doing this), and (b) a future
+  NON-passthrough mount (copy-in/overlay) so container writes don't hit host
+  files directly. (b) remains unbuilt.
 
 ## Distribution readiness — honest blockers (as of 2026-07-18)
 

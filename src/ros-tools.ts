@@ -10,6 +10,8 @@ import {
   buildRunInvocation,
   forceRemoveContainer,
   SANDBOX_UNAVAILABLE_MSG,
+  workspaceHardRefusal,
+  workspaceScopeWarning,
 } from "./sandbox.js";
 
 const execFileAsync = promisify(execFile);
@@ -376,6 +378,8 @@ export async function buildRosWorkspace(
   // install and the workspace - not DDS, not the internet). Windows hosts:
   // the v1 carve-out - host build with a MANDATORY per-call warning.
   if (sandboxEnabled()) {
+    const refusal = workspaceHardRefusal();
+    if (refusal) return { available: true, success: false, workspace_refused: true, reason: refusal };
     if (!IS_WINDOWS) {
       if (!(await isDockerAvailable())) return { available: false, message: SANDBOX_UNAVAILABLE_MSG };
       const distro = ROS_SETUP_SCRIPT?.match(/\/opt\/ros\/([a-z0-9_]+)\//)?.[1];
@@ -389,6 +393,7 @@ export async function buildRosWorkspace(
             "or set sandbox_mode to 'off' to build on the host.",
         };
       }
+      const warn = workspaceScopeWarning();
       const colconArgs = ["build", ...(packages.length ? ["--packages-select", ...packages] : [])];
       const inv = buildRunInvocation(distro, workspacePath, colconArgs);
       try {
@@ -400,6 +405,7 @@ export async function buildRosWorkspace(
           available: true,
           success: true,
           sandboxed: true,
+          ...(warn ? { workspace_warning: warn } : {}),
           image: `ros:${distro}-ros-base`,
           network: "none",
           exitCode: 0,
@@ -414,6 +420,7 @@ export async function buildRosWorkspace(
           available: true,
           success: false,
           sandboxed: true,
+          ...(warn ? { workspace_warning: warn } : {}),
           image: `ros:${distro}-ros-base`,
           exitCode: err.code ?? 1,
           timedOut: Boolean(err.killed),
