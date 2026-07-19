@@ -390,6 +390,17 @@ Tools currently registered:
   tools green (list_ros_nodes, get_ros_graph incl. hidden, sample_ros_topic
   both type args, start_ros_launch_job, restart_ros_node + refusal). Closes
   the "not re-run post-sandbox" gap — that lane is unchanged by the sandbox.
+- **Multi-distro `build_ros_workspace` (2026-07-19).** COVERAGE NOTE: only the
+  CONTAINERIZED build lane varies by distro (image `ros:<distro>-ros-base` from
+  ros_setup_script). `create_ros_package` runs on the HOST's ros2 (Lyrical here)
+  and emits a generic ament_cmake scaffold — it is NOT distro-varied, so
+  "tested against jazzy/humble" applies to the build, not to create.
+  - **jazzy: PASS** — package built in `ros:jazzy-ros-base` (network=none,
+    success, 1.58s, exit 0, no leaks).
+  - **humble: PENDING** (next).
+  Still untested: Lyrical-generated scaffold on much older distros; the Windows
+  host-build carve-out on jazzy/humble; ROS introspection/launch against
+  non-Lyrical (host lane, single-distro on this machine).
 
 ## Roadmap (priority order)
 
