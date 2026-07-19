@@ -397,7 +397,9 @@ Tools currently registered:
   "tested against jazzy/humble" applies to the build, not to create.
   - **jazzy: PASS** — package built in `ros:jazzy-ros-base` (network=none,
     success, 1.58s, exit 0, no leaks).
-  - **humble: PENDING** (next).
+  - **humble: PASS** — package built in `ros:humble-ros-base` (network=none,
+    success, 1.54s, exit 0, no leaks).
+  So the containerized build lane is validated on **Lyrical + Jazzy + Humble**.
   Still untested: Lyrical-generated scaffold on much older distros; the Windows
   host-build carve-out on jazzy/humble; ROS introspection/launch against
   non-Lyrical (host lane, single-distro on this machine).

@@ -14,12 +14,24 @@ it's named for, it installs, maintains, and fixes your machines' software.
 
 ## Status
 
-**v0.3** — 13 tools over stdio, installable as an MCP Bundle (`.mcpb`).
-Validated live (2026-07) against **ROS 2 Lyrical Luth** + turtlesim on
-**Ubuntu 26.04** (WSL2): every ROS tool, the `patch_file` editor, a full MCP
-JSON-RPC round-trip, and the create → edit → build develop loop were all
-exercised for real, not mocked. Other distros (Jazzy, Humble) are supported
-via the `ros_setup_script` setting but have not been validated yet.
+**v0.4** — 13 tools over stdio, installable as an MCP Bundle (`.mcpb`),
+Docker-sandboxed by default. Validated live (2026-07) on **Ubuntu 26.04**
+(WSL2):
+
+- **ROS 2 Lyrical Luth** — every ROS tool, `patch_file`, a full MCP JSON-RPC
+  round-trip, and the create → edit → build develop loop, all against a live
+  turtlesim, not mocked.
+- **`build_ros_workspace` also validated on Jazzy and Humble** — the build
+  runs in the matching `ros:<distro>-ros-base` container, so it is genuinely
+  distro-portable; verified building a package in `ros:jazzy-ros-base` and
+  `ros:humble-ros-base`.
+- **Docker sandbox** — adversarially tested (path-traversal/symlink escape,
+  workbench isolation, and the pids/memory/CPU caps all holding under attack).
+
+Coverage boundaries (honest): the ROS *introspection/launch* tools and
+`create_ros_package` run on the host and have only been exercised against
+Lyrical on this machine; the Windows host-build carve-out has not been tested
+on Jazzy/Humble; macOS is out of scope (no realistic ROS support).
 
 ## The develop loop
 
