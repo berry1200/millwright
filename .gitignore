@@ -4,3 +4,6 @@ patch-sandbox.txt
 *.log
 .DS_Store
 *.mcpb
+
+# Windows alternate-data-stream junk (downloaded-file markers)
+*:Zone.Identifier
