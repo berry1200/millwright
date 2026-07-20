@@ -3,8 +3,8 @@
 Each phase has explicit **exit criteria**. A phase is not complete until every
 criterion is validated against a live system, not merely implemented.
 
-**Current position: Phase 4 (Hardening), just started.**
-**Last updated:** 2026-07-18
+**Current position: Phase 4 (Hardening) — exit review 2026-07-20, recorded in Phase 4 below.**
+**Last updated:** 2026-07-20
 
 ---
 
@@ -92,7 +92,8 @@ users may need to name the extension explicitly at first.
 
 **Exit criteria:** ✅ `mcpb validate` passes · ✅ installs in Claude Desktop ·
 ✅ all 13 tools appear · ✅ verified end-to-end through the installed extension ·
-⬜ icon assets (outstanding) · ⬜ name collision verification (outstanding)
+⬜ icon assets (outstanding — blocks Phase 5 directory submission, not Phase 4) ·
+✅ name collision verification (done 2026-07; findings and the conscious keep-decision in CLAUDE.md)
 
 ---
 
@@ -105,7 +106,7 @@ install warning — "this extension will have access to everything on your
 computer" — is accurate today, and the one-click bundle *removes* the filter that
 manual JSON config accidentally provided.
 
-### 4.1 Sandboxing (spec approved, implementation pending)
+### 4.1 Sandboxing ✅ implemented and adversarially validated
 Per `docs/sandboxing.md`:
 - Workbench container (`ubuntu:24.04`) for the Linux lane via `docker exec`
 - Workspace bind-mounted at the **same absolute path** inside and out
@@ -116,20 +117,93 @@ Per `docs/sandboxing.md`:
 - Fail closed with no Docker; default-on for bundle installs
 - Windows carve-out: host-side builds with `sandboxed: false` per-call warning
 
-### 4.2 Configurable blocklist policy
+Delivered as specced, plus beyond it: a `--cpus` limit (default 2, configurable),
+session-labelled container cleanup, and — post-incident — a workspace-root
+hard-refusal with a multi-repo scope warning surfaced in tool results
+(0.4.2/0.4.3).
+
+**Open finding (2026-07-20 verification):** `build_ros_workspace` does not
+containment-check its `workspace_path` argument. `patch_file` and
+`create_ros_package` are gated to the configured workspace; builds are not, on
+either lane — observed live: a Windows host-side build succeeded against a
+directory *outside* the configured workspace. Covered by the carve-out warning's
+"only build workspaces you trust", but inconsistent with the one-folder mental
+model, and on Windows it means host-executed CMake from any path.
+
+### 4.2 Configurable blocklist policy ⬜ not started
 Replace the hardcoded stopgap with a JSON/YAML policy. Note that `--pids-limit`
 retires the fork-bomb rule when the sandbox is active.
 
-### 4.3 Multi-environment validation
-Jazzy and Humble; native Linux (non-WSL); Windows without WSL.
+### 4.3 Multi-environment validation 🟡 partial
+Jazzy and Humble: ✅ for the containerized build lane (real builds in
+`ros:jazzy-ros-base` and `ros:humble-ros-base`). The host-side introspection
+lane is accepted as **Lyrical-only** — a documented decision, not a gap being
+closed. Native Linux (non-WSL) ⬜ and Windows without WSL ⬜ are untested
+(graceful degradation for the latter is coded, unverified).
 
-### 4.4 CI test suite
+### 4.4 CI test suite 🟡 written, never executed
 Convert the validation harnesses into automated tests. This is what prevents a
 regression six months from now.
 
-**Exit criteria:** ⬜ sandbox implemented and validated with real containers ·
-⬜ escape attempts tested, not assumed · ⬜ validated on ≥2 ROS distros ·
-⬜ tests run in CI · ⬜ install docs accurate for a cold user
+**Status:** the tiered suite exists and is green locally (Tier-1 unit tests,
+Tier-2 sandbox suite against real Docker), but both GitHub runs to date died in
+a confirmed GitHub Actions outage — the workflow has **never executed on
+GitHub**. Local green does not satisfy this item.
+
+**Exit criteria (reviewed 2026-07-20):**
+
+- ✅ sandbox implemented and validated with real containers — limits confirmed
+  statically (`docker inspect`) and dynamically under load
+- ✅ escape attempts tested, not assumed — six adversarial scenarios (path
+  traversal, symlink escape, workbench isolation, hostile CMakeLists, pids
+  bomb, memory bomb, CPU spinner), all contained, zero leaked containers
+- ✅ **build lane** validated on ≥2 ROS distros (Lyrical + Jazzy + Humble);
+  introspection lane accepted as Lyrical-only, documented. *Criterion rewritten
+  2026-07-20: the original "validated on ≥2 ROS distros" implied whole-server
+  coverage the introspection lane doesn't have — ticking it unqualified would
+  have been self-deception.*
+- ⬜ tests run in CI — written and locally green, never executed on GitHub
+  (Actions outage); local green does not count
+- 🟡 install docs accurate for a cold user — author-corrected (Docker
+  prerequisite up front, `Sandbox CPU limit` documented, Workspace folder
+  marked effectively required, fail-closed explained), but never exercised by
+  an actual cold user; that test belongs to Phase 5
+
+### Phase 4 exit review (2026-07-20)
+
+**Genuinely done:** both safety-critical criteria (real-container validation,
+adversarial escape testing), plus beyond-spec hardening: `--cpus`, fail-closed
+without Docker, workspace-root hard-refusal, multi-repo scope warning.
+
+**Verified through a live MCP client connection (2026-07-20):**
+outside-workspace patch refusal (exact coded message, echoing the configured
+root), inside-workspace patch applied and confirmed on disk, Windows build
+carve-out `sandboxed: false` + warning present in a real result, Docker-absent
+fail-closed message returned to a real client. Caveat: that connection ran a
+stale pre-0.4.3 server process (its config snapshot predated the incident), so
+the 0.4.3-specific guards — workspace-ROOT refusal, dangerous-root
+hard-refusal — still need one pass through the freshly installed extension.
+The stale process is itself a lesson: settings changes only apply after the
+server restarts, and the refusal messages double as a readout of which config
+is actually live.
+
+**Self-deception risks named:** the distro criterion held only for the build
+lane (now rewritten); CI exists but has never run — an unexecuted suite
+prevents no regressions; every validation so far was by the author on the
+author's machine; and the `build_ros_workspace` containment gap (4.1 open
+finding) surfaced only because live verification deliberately targeted a
+directory outside the configured workspace.
+
+**Smallest remaining set before handing to one other person:**
+1. ⬜ verify the 0.4.3 guards through the installed extension
+   (`sandboxed: true` on run_command; patch inside/outside the workspace;
+   ROOT and dangerous-root refusals)
+2. ✅ fire the Windows build carve-out — warning observed in a real result
+3. ✅ README: `Sandbox CPU limit` documented, Workspace folder marked
+   effectively required, Docker stated as an up-front hard prerequisite
+4. ✅ README: Docker-absent fail-closed described as expected behavior
+
+CI green is regression prevention, not a handoff gate for one trusted person.
 
 ---
 

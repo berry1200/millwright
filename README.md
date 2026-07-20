@@ -91,11 +91,21 @@ npm install
 npm run build
 ```
 
-Node 20+ (built and tested on Node 24). For the ROS tools, run the server from a
+Node 20+ (built and tested on Node 24), and Docker for the default sandboxed
+mode — it fails closed without it (set `SANDBOX_MODE=off` to knowingly run
+unsandboxed). For the ROS tools, run the server from a
 shell that has sourced your ROS 2 setup (e.g. `source /opt/ros/lyrical/setup.bash`)
 so `ros2` and `colcon` are on PATH and node discovery works.
 
 ## Install as an MCP Bundle (recommended)
+
+**Prerequisites: Node 20+ and Docker.** Docker is a hard prerequisite of the
+default configuration — sandboxing is on by default and **fails closed**: with
+Docker missing or stopped, `run_command`, background jobs, and (on Linux)
+builds refuse to run and return instructions instead. On Windows that means
+Docker Desktop with WSL integration enabled for your distro. Seeing "Docker is
+not reachable" on a fresh install is the sandbox working as designed, not a
+bug — start Docker, or knowingly set Sandbox mode to `off`.
 
 Build the bundle and install it with one click — no JSON editing:
 
@@ -111,7 +121,8 @@ Windows, `.mcpb` frequently has no file association, so Windows shows an
 "open with" app picker that doesn't list Claude Desktop and the double-click
 goes nowhere — observed on a real install.
 
-The install dialog prompts for these optional settings:
+The install dialog prompts for these settings — with sandboxing on (the
+default), **Workspace folder is effectively required**; the rest are optional:
 
 - **ROS 2 setup script path** — e.g. `/opt/ros/lyrical/setup.bash` (works for
   `jazzy`/`humble` too). The server sources it before every ROS command, so
@@ -124,12 +135,20 @@ The install dialog prompts for these optional settings:
 - **Sandbox mode** — `docker` (default: commands run in containers, edits
   confined to the workspace) or `off` (everything runs directly on your
   machine). Needs Docker if left on — on Windows, Docker Desktop with WSL
-  integration enabled for your distro.
-- **Workspace folder** — the project directory Millwright works in: mounted
-  into sandbox containers and the only place file edits are allowed while
-  sandboxing is on. On Windows pick a folder inside WSL (`\\wsl.localhost\…`).
+  integration enabled for your distro. Without Docker these tools refuse to
+  run (fail closed) with instructions — expected behavior, not a bug.
+- **Workspace folder** (required unless sandbox is off) — the project
+  directory Millwright works in: mounted into sandbox containers and the only
+  place file edits are allowed while sandboxing is on. Left blank with
+  sandboxing on, file edits refuse until it is set. Scope it to ONE project,
+  not a parent of many — everything under it is writable, and
+  filesystem/drive/home roots are refused outright. On Windows pick a folder
+  inside WSL (`\\wsl.localhost\…`).
 - **Sandbox network** — `all` (default) or `none` for the workbench;
   builds are always network-isolated regardless.
+- **Sandbox CPU limit** — max CPU cores a sandbox container may use (default
+  `2`; decimals like `1.5` allowed). Keeps a runaway process from pegging the
+  machine; raise it for faster container builds on many-core hosts.
 
 Leave the setup script blank if you don't use ROS: the Linux tools work
 independently, and ROS tools reply with a clear `available: false` message.
