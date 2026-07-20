@@ -518,6 +518,10 @@ Off-disk backup: `D:\Linux CLI\millwright-backup-2210066.bundle`.
 
 ## INCIDENT 2026-07-19 — a project directory was emptied (read this)
 
+*(Updated 2026-07-20: the RE-INVESTIGATION below positively EXCLUDES Millwright
+execution at the recorded deletion time and corrects the timeline — 0.4.0 was
+not yet installed when the directory was emptied.)*
+
 `~/projects/vigil247` was emptied ~09:06 in a separate Claude Desktop session
 running Millwright 0.4.0, with `workspace_dir` set to **`~/projects`** — the
 parent of ALL projects. Millwright was a suspect. Investigation outcome:
@@ -554,6 +558,41 @@ parent of ALL projects. Millwright was a suspect. Investigation outcome:
   minutes; the evidence cannot. (Recorded here and worth adding to
   `docs/rules.md`.)
 
+**RE-INVESTIGATION 2026-07-20 (the stale-instance lead).** A Claude Code
+session was found still holding a live pre-0.4.2 Millwright instance whose
+`workspace_dir` snapshot was **`~/projects/vigil247`** — prompting a re-open.
+New evidence, all message-level logs rather than source audit:
+
+- `%APPDATA%\Claude\logs\mcp-server-Millwright.log` records every JSON-RPC
+  message. From 2026-07-18T17:12Z to 2026-07-19T08:58Z it contains **zero
+  `tools/call`** — the Desktop server running at the deletion moment
+  (08:06:10Z = 09:06:10 +0100) was the **0.3.0-era process, idle ~15 hours**.
+- The 0.4.0 install and `~/projects` workspace config happened AFTER the
+  deletion: server restart churn 08:08–08:57Z (09:08–09:57 local), then the
+  first tool calls of the day at 08:58–08:59Z (8 calls) and 09:09Z (4 calls) —
+  52+ minutes post-deletion. The "emptied in a session running 0.4.0" framing
+  above was wrong: 0.4.0 was not yet installed at the deletion mtime.
+- Every Claude Code transcript on the machine was enumerated and mined: zero
+  tool calls in the deletion window in ANY session; this session's complete
+  Millwright call history is 3 benign calls on 07-18 evening plus the 07-20
+  guard probes. The other sessions ended 07-11/07-14.
+- **Conclusion: no Millwright instance executed any tool call at the recorded
+  deletion time — exclusion by logs, not by absence of deletion code.** The
+  stale vigil247-scoped instance is likewise exonerated (its complete call
+  history is enumerated). Root cause remains outside Millwright: a terminal
+  command, another tool, or a script — still not determinable from surviving
+  evidence.
+- **Open caveat:** if the "09:06:10" stamp was actually read in UTC rather
+  than +0100, the deletion would instead fall minutes after the 08:58Z call
+  burst — the contents of those 12 calls are in that morning's Claude Desktop
+  conversation (09:58–10:10 local) and should be checked once to close this
+  branch.
+- **Systemic lesson found on the way:** settings changes do NOT propagate to
+  already-running server instances — a stale process keeps its old workspace
+  scope and old binary indefinitely (this one outlived three workspace
+  changes and two version installs). Worth logging version + workspace to
+  stderr at startup so client logs capture what each instance ran with.
+
 **Fixes shipped 0.4.1 → 0.4.2 (2026-07-19):**
 - **0.4.1** `isInsideWorkspace` refuses the workspace ROOT itself (patch_file /
   create_ros_package act only on paths strictly beneath it). Unit-verified.
@@ -568,6 +607,12 @@ parent of ALL projects. Millwright was a suspect. Investigation outcome:
   would push users to disable sandboxing) but `workspaceScopeWarning()` now
   rides in `run_command`/`build`/`create` RESULTS, not just startup. All
   unit-verified without Docker.
+- **0.4.4 build gate (2026-07-20):** `build_ros_workspace.workspace_path` was
+  the ONE path argument that skipped `isInsideWorkspace` — a sandboxed "build"
+  of any host directory would execute its CMakeLists host-side on Windows.
+  Found by probing the stale instance during the re-investigation. Now gated,
+  with `allowRoot` because building the configured workspace root itself is
+  the normal colcon flow. Unit-verified via subprocess probes (8/8 green).
 
 **Still-open (the real, harder fix):**
 - Even the root guard + hard-refusal does NOT stop `rm -rf <ws>/<child>` inside
