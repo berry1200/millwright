@@ -380,6 +380,15 @@ export async function buildRosWorkspace(
   if (sandboxEnabled()) {
     const refusal = workspaceHardRefusal();
     if (refusal) return { available: true, success: false, workspace_refused: true, reason: refusal };
+    // Containment gate (2026-07-20 finding): builds execute the workspace's
+    // CMakeLists/setup.py, so workspace_path must obey the same allowlist as
+    // patch_file/create_ros_package - builds were previously the one ungated
+    // path argument, and on Windows they run host-side. allowRoot because
+    // building the configured workspace root itself IS the normal colcon flow.
+    const buildGate = await isInsideWorkspace(workspacePath, { allowRoot: true });
+    if (!buildGate.ok) {
+      return { available: true, success: false, workspace_refused: true, reason: buildGate.reason };
+    }
     if (!IS_WINDOWS) {
       if (!(await isDockerAvailable())) return { available: false, message: SANDBOX_UNAVAILABLE_MSG };
       const distro = ROS_SETUP_SCRIPT?.match(/\/opt\/ros\/([a-z0-9_]+)\//)?.[1];

@@ -232,9 +232,10 @@ export const WORKSPACE_REQUIRED_MSG =
 /** Checks containment against the workspace root, symlink-resolved. On
  * Windows both the UNC form (\\wsl.localhost\...) and the raw configured form
  * are valid roots, since the model may address WSL files either way. */
-export async function isInsideWorkspace(candidate: string): Promise<
-  { ok: true } | { ok: false; reason: string }
-> {
+export async function isInsideWorkspace(
+  candidate: string,
+  opts: { allowRoot?: boolean } = {}
+): Promise<{ ok: true } | { ok: false; reason: string }> {
   if (!RAW_WORKSPACE_DIR) return { ok: false, reason: WORKSPACE_REQUIRED_MSG };
   const refusal = workspaceHardRefusal();
   if (refusal) return { ok: false, reason: refusal };
@@ -267,8 +268,12 @@ export async function isInsideWorkspace(candidate: string): Promise<
       const rootReal = await realpath(root);
       if (norm(real) === norm(rootReal)) {
         // GUARD (incident 2026-07-19): the workspace ROOT directory itself is
-        // never an operable target - Millwright acts only on paths strictly
-        // BENEATH it, and never edits or removes the workspace directory.
+        // never an EDIT target - Millwright edits only paths strictly BENEATH
+        // it, and never edits or removes the workspace directory. allowRoot
+        // exists for operations whose normal operand IS the root: colcon
+        // builds run FROM the workspace root and only create build/ install/
+        // log/ beneath it (2026-07-20 build-gate finding).
+        if (opts.allowRoot) return { ok: true };
         return {
           ok: false,
           reason:
