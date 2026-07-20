@@ -401,6 +401,31 @@ Tools currently registered:
     success, 1.54s, exit 0, no leaks).
   So the containerized build lane is validated on **Lyrical + Jazzy + Humble**.
 
+### DECISION CLOSED (2026-07-20): introspection lane stays host-side, Lyrical-only
+
+Do not reopen without new information. The remaining Phase-4 gap — ROS
+introspection/launch validated only against Lyrical — is **accepted and
+documented**, not scheduled for closure. Rationale:
+
+- Containerising it requires DDS discovery to work, which needs
+  `--network=host`; per `docs/sandboxing.md` that does not work meaningfully on
+  Docker Desktop's VM (the primary Windows environment) AND would discard most
+  of the isolation the sandbox exists to provide. Net result: more complexity,
+  weaker sandbox.
+- Risk profile doesn't justify it: these are structured `ros2 <verb>` calls, not
+  arbitrary shell, and `restart_ros_node` already refuses processes it didn't
+  launch. The dangerous lanes (shell, CMake-executing builds) are already
+  contained and adversarially tested.
+- The portability worry is largely covered elsewhere: `build_ros_workspace` IS
+  containerised and validated on Lyrical + Jazzy + Humble, which is where distro
+  differences (compilers, ament versions) actually bite. The ROS 2 CLI surface
+  used by introspection is stable across distros.
+- If real multi-distro introspection coverage is ever wanted, get it from a
+  **self-hosted CI runner** with a second distro (the `ros` job stub in
+  `ci.yml`) — an infrastructure problem, far cheaper than an architecture one.
+
+Documented for users in README under "Coverage boundaries (honest)".
+
 ### Session handoff — verified vs pending (2026-07-19 end)
 
 **VERIFIED & committed this session** (HEAD `2210066`): 0.4.1 root guard +

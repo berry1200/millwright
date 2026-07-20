@@ -28,10 +28,25 @@ Docker-sandboxed by default. Validated live (2026-07) on **Ubuntu 26.04**
 - **Docker sandbox** — adversarially tested (path-traversal/symlink escape,
   workbench isolation, and the pids/memory/CPU caps all holding under attack).
 
-Coverage boundaries (honest): the ROS *introspection/launch* tools and
-`create_ros_package` run on the host and have only been exercised against
-Lyrical on this machine; the Windows host-build carve-out has not been tested
-on Jazzy/Humble; macOS is out of scope (no realistic ROS support).
+### Coverage boundaries (honest)
+
+- **The ROS introspection/launch tools are validated against Lyrical only, and
+  that is an accepted limit, not a gap we're closing.** `list_ros_nodes`,
+  `get_ros_graph`, `sample_ros_topic`, `start_ros_launch_job` and
+  `restart_ros_node` run on the *host*, because they depend on DDS discovery —
+  which does not survive containerisation without `--network=host`, and that
+  flag doesn't work meaningfully on Docker Desktop's VM (the primary Windows
+  setup) and would discard most of the isolation the sandbox exists to provide.
+  These are structured `ros2 <verb>` calls, not arbitrary shell, and the
+  genuinely dangerous lanes (shell execution, CMake-executing builds) *are*
+  sandboxed. The ROS 2 CLI surface is stable across distros, so Jazzy/Humble are
+  expected to work — but they are **untested**, and we say so rather than imply
+  coverage we don't have. Real coverage would come from a self-hosted CI runner
+  with another distro installed (the `ros` job is stubbed in `ci.yml`).
+- `create_ros_package` also runs on the host and emits a generic ament scaffold,
+  so it is not distro-varied either.
+- The Windows host-build carve-out has not been tested on Jazzy/Humble.
+- macOS is out of scope (no realistic upstream ROS 2 support).
 
 ## The develop loop
 
