@@ -7,11 +7,8 @@ on:
     branches: [main]
   workflow_dispatch:
 
-permissions:
-  contents: read
-
 jobs:
-  # Tier 1 - pure logic (blocklist, patch_file, path guards, truncation).
+  # Tier 1 — pure logic (blocklist, patch_file, path guards, truncation).
   # No Docker, no ROS: runs anywhere, fast, gates every push/PR.
   unit:
     runs-on: ubuntu-latest
@@ -25,7 +22,7 @@ jobs:
       - name: Unit tests (node:test)
         run: npm test
 
-  # Tier 2 - sandbox security guarantees against REAL Docker containers
+  # Tier 2 — sandbox security guarantees against REAL Docker containers
   # (ubuntu:24.04 only). GitHub-hosted ubuntu runners ship with Docker, so this
   # runs on every push. Covers: path-traversal / symlink escape refusal,
   # workbench isolation (host files / docker socket not reachable), and the
@@ -43,26 +40,20 @@ jobs:
       - name: Sandbox adversarial tests (Docker)
         run: npm run test:sandbox
 
-# ---------------------------------------------------------------------------
-# Tier 3 - the ROS lane (live turtlesim, colcon, multi-distro builds) needs a
-# real ROS 2 install and a display; GitHub-hosted runners have neither, so
-# there is deliberately NO ros job here. A job that can never be scheduled adds
-# validation surface for zero benefit (an earlier `if: false` +
-# `runs-on: [self-hosted, ros]` stub is a suspect for a workflow startup
-# failure). Run `npm run test:ros` manually on a ROS machine (see test-ros.sh).
-#
-# To enable it once a self-hosted runner labelled `ros` exists, uncomment and
-# add under `jobs:` (note the two-space indent):
-#
-#   ros:
-#     runs-on: [self-hosted, ros]
-#     needs: unit
-#     steps:
-#       - uses: actions/checkout@v4
-#       - uses: actions/setup-node@v4
-#         with:
-#           node-version: "20"
-#       - run: npm ci
-#       - name: ROS lane tests (requires sourced ROS 2 + turtlesim)
-#         run: npm run test:ros
-# ---------------------------------------------------------------------------
+  # Tier 3 — the ROS lane (live turtlesim, colcon, multi-distro builds) needs a
+  # real ROS 2 install and a display; GitHub-hosted runners have neither. This
+  # job is a PLACEHOLDER that only runs on a self-hosted runner labelled `ros`.
+  # Until such a runner exists it is skipped by default. Run `npm run test:ros`
+  # manually on a ROS machine in the meantime (see test-ros.sh).
+  ros:
+    if: false # flip to a self-hosted runner when available; ROS can't run on hosted
+    runs-on: [self-hosted, ros]
+    needs: unit
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - run: npm ci
+      - name: ROS lane tests (requires sourced ROS 2 + turtlesim)
+        run: npm run test:ros

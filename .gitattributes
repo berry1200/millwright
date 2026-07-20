@@ -1,9 +1,0 @@
-# The repo is edited from both Windows (UNC into WSL) and Linux. Workflow and
-# shell files MUST stay LF: CRLF in a GitHub Actions workflow or a bash script
-# is a known source of parse/exec failures.
-* text=auto eol=lf
-*.yml text eol=lf
-*.yaml text eol=lf
-*.sh text eol=lf
-*.mjs text eol=lf
-*.ts text eol=lf
