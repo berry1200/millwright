@@ -121,7 +121,9 @@ message(FATAL_ERROR "PROBE net=\${NET} etc=\${ETC} tmp=\${TMP}")
   console.log(`     host process count before/after: ${hostBefore} -> ${hostAfter}`);
   verdict(Number(pids) === 512, "cap SATURATED at 512 - bomb contained (did not reach 2000)", `pids=${pids}`);
   verdict(Number(hostAfter) < Number(hostBefore) + 100, "host process table not blown up");
-  verdict(alive === "1", "unrelated host process (turtlesim) still alive");
+  // turtlesim is informational only: it is NOT running on a clean CI runner,
+  // so asserting on it would fail the job for an unrelated reason.
+  console.log(`     (informational) turtlesim running on host: ${alive}`);
 } else if (scenario === "memory") {
   hr("memory bomb vs --memory 2g (host must stay healthy)");
   const freeBefore = (await pexec("bash", ["-c", "free -m | awk '/Mem:/{print $7}'"])).stdout.trim();
@@ -129,7 +131,10 @@ message(FATAL_ERROR "PROBE net=\${NET} etc=\${ETC} tmp=\${TMP}")
   const t0 = Date.now();
   // `tail /dev/zero` buffers an infinite newline-less stream -> allocates fast;
   // the cgroup OOM-killer should kill it (exit 137) at ~2g, host untouched.
-  const r = await runCommand("tail /dev/zero", 25000);
+  // 60s, not 25s: `tail /dev/zero` allocation speed varies ~2x with machine
+  // load, and a timeout-kill (124) instead of an OOM-kill (137) would prove
+  // nothing about the memory cap. Generous budget keeps this non-flaky in CI.
+  const r = await runCommand("tail /dev/zero", 60000);
   const oom = await runCommand("grep oom_kill /sys/fs/cgroup/memory.events 2>/dev/null || echo none");
   console.log(`     memory.max=${(maxProbe.stdout||"").trim()}  attempt exit=${r.exitCode} timedOut=${r.timedOut} in ${Date.now() - t0}ms`);
   console.log(`     cgroup memory.events oom: ${(oom.stdout||"").trim()}`);
@@ -140,8 +145,8 @@ message(FATAL_ERROR "PROBE net=\${NET} etc=\${ETC} tmp=\${TMP}")
   console.log(`     host available MB before/after: ${freeBefore} -> ${freeAfter}`);
   const oomKilled = /oom_kill (\d+)/.exec(oom.stdout || "");
   verdict(r.exitCode === 137 || (oomKilled && Number(oomKilled[1]) > 0), "attacker OOM-killed at the 2g cap (exit 137 / oom_kill>0)", `exit=${r.exitCode}`);
-  verdict(alive === "1", "unrelated host process (turtlesim) still alive");
   verdict(/still-responsive/.test(still.stdout || ""), "sandbox still usable after the bomb");
+  console.log(`     (informational) turtlesim running on host: ${alive}`);
 } else if (scenario === "cpus") {
   hr("CPU spinner vs --cpus cap (host must stay responsive)");
   // Like pids/memory: a spinner burns CPU indefinitely and a docker-exec child
