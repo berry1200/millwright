@@ -3,8 +3,8 @@
 Each phase has explicit **exit criteria**. A phase is not complete until every
 criterion is validated against a live system, not merely implemented.
 
-**Current position: Phase 4 (Hardening) — exit review 2026-07-20, recorded in Phase 4 below.**
-**Last updated:** 2026-07-20
+**Current position: Phase 4 (Hardening) — one criterion (CI) from closed; exit review updated 2026-07-21 in Phase 4 below.**
+**Last updated:** 2026-07-21
 
 ---
 
@@ -122,13 +122,16 @@ session-labelled container cleanup, and — post-incident — a workspace-root
 hard-refusal with a multi-repo scope warning surfaced in tool results
 (0.4.2/0.4.3).
 
-**Open finding (2026-07-20 verification):** `build_ros_workspace` does not
-containment-check its `workspace_path` argument. `patch_file` and
-`create_ros_package` are gated to the configured workspace; builds are not, on
-either lane — observed live: a Windows host-side build succeeded against a
-directory *outside* the configured workspace. Covered by the carve-out warning's
-"only build workspaces you trust", but inconsistent with the one-folder mental
-model, and on Windows it means host-executed CMake from any path.
+**Resolved (0.4.4 / 0.4.5):** the `build_ros_workspace` containment gap — it was
+the one path argument skipping `isInsideWorkspace`, so a Windows host-side build
+could execute CMake from any directory — is closed. `workspace_path` is now
+gated like `patch_file` / `create_ros_package` (with `allowRoot`, since building
+the workspace root is the normal colcon flow). 0.4.5 additionally translates
+model-supplied POSIX paths to host-addressable form BEFORE the gate, closing a
+Windows-wide hole where a container-native path (`/home/...`) failed to resolve
+host-side and never reached the guard at all. Translate-then-gate is
+adversarially verified on win32: `/mnt/c/...`→`C:\...` (incl. a real
+`C:\Windows\...\hosts`) and post-translation `..` escapes are refused.
 
 ### 4.2 Configurable blocklist policy ⬜ not started
 Replace the hardcoded stopgap with a JSON/YAML policy. Note that `--pids-limit`
@@ -141,14 +144,16 @@ lane is accepted as **Lyrical-only** — a documented decision, not a gap being
 closed. Native Linux (non-WSL) ⬜ and Windows without WSL ⬜ are untested
 (graceful degradation for the latter is coded, unverified).
 
-### 4.4 CI test suite 🟡 written, never executed
+### 4.4 CI test suite 🟡 written; first GitHub run triggered, not yet confirmed
 Convert the validation harnesses into automated tests. This is what prevents a
 regression six months from now.
 
-**Status:** the tiered suite exists and is green locally (Tier-1 unit tests,
-Tier-2 sandbox suite against real Docker), but both GitHub runs to date died in
-a confirmed GitHub Actions outage — the workflow has **never executed on
-GitHub**. Local green does not satisfy this item.
+**Status (2026-07-21):** the tiered suite is green locally (Tier-1 unit: 12/12,
+including translate-then-gate escape tests; Tier-2 sandbox suite against real
+Docker). Earlier GitHub runs died in a confirmed Actions outage; the outage has
+since cleared and the workflow has now been **triggered for the first time**
+(push of `2cad24b`). Its result is not yet confirmed green — a confirmed green
+run on GitHub, not local green, is what satisfies this item.
 
 **Exit criteria (reviewed 2026-07-20):**
 
@@ -162,12 +167,13 @@ GitHub**. Local green does not satisfy this item.
   2026-07-20: the original "validated on ≥2 ROS distros" implied whole-server
   coverage the introspection lane doesn't have — ticking it unqualified would
   have been self-deception.*
-- ⬜ tests run in CI — written and locally green, never executed on GitHub
-  (Actions outage); local green does not count
-- 🟡 install docs accurate for a cold user — author-corrected (Docker
-  prerequisite up front, `Sandbox CPU limit` documented, Workspace folder
-  marked effectively required, fail-closed explained), but never exercised by
-  an actual cold user; that test belongs to Phase 5
+- ⬜ tests run in CI — suite is 12/12 local + the Tier-2 sandbox harness;
+  first-ever GitHub run triggered 2026-07-21 (outage cleared), result not yet
+  confirmed. **This is the one genuine blocker left.**
+- ✅ install docs accurate for an installed user — Docker prerequisite up front,
+  `Sandbox CPU limit` documented, Workspace folder marked effectively required,
+  fail-closed explained, stale-server restart + refusal-readout documented. A
+  true never-seen-it cold trial remains a Phase 5 item.
 
 ### Phase 4 exit review (2026-07-20)
 
@@ -195,15 +201,33 @@ finding) surfaced only because live verification deliberately targeted a
 directory outside the configured workspace.
 
 **Smallest remaining set before handing to one other person:**
-1. ⬜ verify the 0.4.3 guards through the installed extension
-   (`sandboxed: true` on run_command; patch inside/outside the workspace;
-   ROOT and dangerous-root refusals)
+1. ✅ verified the guards through the INSTALLED extension (2026-07-21): patch
+   applies inside the workspace; refuses an outside path by name with the live
+   `workspace_dir` in the parenthetical; hard-refuses the workspace ROOT; passes
+   the gate on an in-workspace absent file (stops only on absence). Raw JSON on
+   file. The six-session verification gap is closed.
 2. ✅ fire the Windows build carve-out — warning observed in a real result
 3. ✅ README: `Sandbox CPU limit` documented, Workspace folder marked
    effectively required, Docker stated as an up-front hard prerequisite
 4. ✅ README: Docker-absent fail-closed described as expected behavior
+5. ✅ refusal messages no longer advertise disabling the sandbox — containment
+   and config refusals rewritten to state the boundary and the legitimate paths
+   (move the file in, or rescope `workspace_dir` + restart). The Docker-absent
+   message still names the opt-out: it is a missing-dependency notice, not a
+   containment refusal.
 
-CI green is regression prevention, not a handoff gate for one trusted person.
+**Verdict (2026-07-21): Phase 4 is one criterion from closed, and that
+criterion is CI.** Real-container validation, adversarial escape testing (now
+including the 0.4.5 translation attack surface), the rewritten distro criterion,
+and install-doc accuracy are all met — and, critically, the guards are verified
+through the *installed* extension, not just by module import. The sole genuine
+blocker is a confirmed-green CI run on GitHub (4.4 / "tests run in CI"): the
+suite exists, is 12/12 locally, and has just triggered its first real run.
+Deferred, not done, and honestly out of scope for a single-machine WSL handoff:
+4.2 configurable blocklist (the `--pids-limit` cap already retires the fork-bomb
+rule under the default sandbox) and 4.3 breadth (native-Linux-non-WSL and
+Windows-without-WSL untested). Do not tick 4.2 / 4.3 as done — they are real but
+non-blocking for this handoff.
 
 ---
 

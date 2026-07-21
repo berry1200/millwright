@@ -412,8 +412,8 @@ export async function buildRosWorkspace(
           success: false,
           reason:
             "Sandboxed builds pick the container image from ros_setup_script " +
-            "(/opt/ros/<distro>/setup.bash -> ros:<distro>-ros-base). Set ros_setup_script, " +
-            "or set sandbox_mode to 'off' to build on the host.",
+            "(/opt/ros/<distro>/setup.bash -> ros:<distro>-ros-base). Set ros_setup_script in " +
+            "the extension settings and restart the extension.",
         };
       }
       const warn = workspaceScopeWarning();

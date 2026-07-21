@@ -308,8 +308,8 @@ export function forceRemoveContainer(name: string): void {
 
 export const WORKSPACE_REQUIRED_MSG =
   "Sandboxing is on, so file edits are restricted to the configured workspace - but no " +
-  "workspace_dir is set. Set workspace_dir in the extension settings (WORKSPACE_DIR env), " +
-  "or set sandbox_mode to 'off' to edit files anywhere.";
+  "workspace_dir is set. Set the Workspace folder (workspace_dir) in the extension settings " +
+  "to the project you want Millwright to edit, then restart the extension.";
 
 /** Checks containment against the workspace root, symlink-resolved. On
  * Windows both the UNC form (\\wsl.localhost\...) and the raw configured form
@@ -374,7 +374,9 @@ export async function isInsideWorkspace(
     ok: false,
     reason:
       `refused: '${candidate}' is outside the configured workspace (${RAW_WORKSPACE_DIR}). ` +
-      `The sandbox restricts edits to the workspace; set sandbox_mode to 'off' to lift this.`,
+      `Millwright edits only files beneath the workspace. Move the file into the workspace, ` +
+      `or widen the Workspace folder (workspace_dir) in the extension settings to cover this ` +
+      `location and restart the extension.`,
   };
 }
 
@@ -412,8 +414,8 @@ export function workspaceHardRefusal(): string | null {
   return (
     `refused: workspace_dir is '${p}', a filesystem / drive / home root. Millwright will not ` +
     `sandbox-mount a location this broad - a single destructive command would reach your entire ` +
-    `home or drive. Set workspace_dir to a specific project directory, or set sandbox_mode to ` +
-    `'off' if you knowingly accept running unsandboxed.`
+    `home or drive. Set the Workspace folder (workspace_dir) to a specific project directory ` +
+    `and restart the extension.`
   );
 }
 
