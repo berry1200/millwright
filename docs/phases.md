@@ -3,7 +3,7 @@
 Each phase has explicit **exit criteria**. A phase is not complete until every
 criterion is validated against a live system, not merely implemented.
 
-**Current position: Phase 4 (Hardening) — one criterion (CI) from closed; exit review updated 2026-07-21 in Phase 4 below.**
+**Current position: Phase 4 (Hardening) COMPLETE (2026-07-21) — all five exit criteria met, CI green on GitHub. Deferred sub-items 4.2/4.3 do not gate the phase; see verdict. Phase 5 not started.**
 **Last updated:** 2026-07-21
 
 ---
@@ -144,16 +144,19 @@ lane is accepted as **Lyrical-only** — a documented decision, not a gap being
 closed. Native Linux (non-WSL) ⬜ and Windows without WSL ⬜ are untested
 (graceful degradation for the latter is coded, unverified).
 
-### 4.4 CI test suite 🟡 written; first GitHub run triggered, not yet confirmed
+### 4.4 CI test suite ✅ green on GitHub
 Convert the validation harnesses into automated tests. This is what prevents a
 regression six months from now.
 
-**Status (2026-07-21):** the tiered suite is green locally (Tier-1 unit: 12/12,
-including translate-then-gate escape tests; Tier-2 sandbox suite against real
-Docker). Earlier GitHub runs died in a confirmed Actions outage; the outage has
-since cleared and the workflow has now been **triggered for the first time**
-(push of `2cad24b`). Its result is not yet confirmed green — a confirmed green
-run on GitHub, not local green, is what satisfies this item.
+**Status (2026-07-21): green on GitHub.** After the Actions outage cleared, the
+first real runs exposed two *measurement* artifacts on the hosted 2-core runner
+(not safety failures): the pids test asserted on the host process table (container
+PIDs are visible under native Docker but not under Docker Desktop's VM), and the
+memory bomb (`tail /dev/zero`) couldn't fill 2g in bounded time on 2 cores. Both
+were fixed to measure the real property — host responsiveness for pids, a
+core-independent allocator for memory — without loosening a threshold. Run on
+`acdb4b8` is **green**: unit + sandbox jobs both pass, ~2m27s, containers
+genuinely ran. `actions/checkout` + `setup-node` bumped v4→v7 (Node 24 runtime).
 
 **Exit criteria (reviewed 2026-07-20):**
 
@@ -167,9 +170,9 @@ run on GitHub, not local green, is what satisfies this item.
   2026-07-20: the original "validated on ≥2 ROS distros" implied whole-server
   coverage the introspection lane doesn't have — ticking it unqualified would
   have been self-deception.*
-- ⬜ tests run in CI — suite is 12/12 local + the Tier-2 sandbox harness;
-  first-ever GitHub run triggered 2026-07-21 (outage cleared), result not yet
-  confirmed. **This is the one genuine blocker left.**
+- ✅ tests run in CI — **confirmed green on GitHub** (`acdb4b8`, ~2m27s): Tier-1
+  unit (12/12) + Tier-2 sandbox suite against real containers. Two runner-specific
+  measurement artifacts were fixed to test the real property, not thresholds.
 - ✅ install docs accurate for an installed user — Docker prerequisite up front,
   `Sandbox CPU limit` documented, Workspace folder marked effectively required,
   fail-closed explained, stale-server restart + refusal-readout documented. A
@@ -216,18 +219,28 @@ directory outside the configured workspace.
    message still names the opt-out: it is a missing-dependency notice, not a
    containment refusal.
 
-**Verdict (2026-07-21): Phase 4 is one criterion from closed, and that
-criterion is CI.** Real-container validation, adversarial escape testing (now
-including the 0.4.5 translation attack surface), the rewritten distro criterion,
-and install-doc accuracy are all met — and, critically, the guards are verified
-through the *installed* extension, not just by module import. The sole genuine
-blocker is a confirmed-green CI run on GitHub (4.4 / "tests run in CI"): the
-suite exists, is 12/12 locally, and has just triggered its first real run.
-Deferred, not done, and honestly out of scope for a single-machine WSL handoff:
-4.2 configurable blocklist (the `--pids-limit` cap already retires the fork-bomb
-rule under the default sandbox) and 4.3 breadth (native-Linux-non-WSL and
-Windows-without-WSL untested). Do not tick 4.2 / 4.3 as done — they are real but
-non-blocking for this handoff.
+**Verdict (2026-07-21): Phase 4 is CLOSED.** All five exit criteria are met and
+independently verified — real-container validation, adversarial escape testing
+(including the 0.4.5 translation attack surface), the rewritten distro criterion,
+install-doc accuracy, and now a confirmed-green CI run on GitHub (`acdb4b8`).
+Critically, the guards are verified through the *installed* extension, not just
+by module import.
+
+**Still honestly not done, and deliberately NOT ticked:**
+- **4.2 configurable blocklist** — still the hardcoded stopgap. Not an exit
+  criterion, and the `--pids-limit` cap already retires the fork-bomb rule under
+  the default sandbox, so it does not gate the safety goal. Deferred to a later
+  hardening pass.
+- **4.3 breadth** — native-Linux-non-WSL and Windows-without-WSL remain untested
+  (graceful degradation for the latter is coded, unverified).
+
+**Does either block handing this to one other person? No — with one scoping
+condition.** For a second person on the *same* Windows + WSL2 + Docker Desktop
+setup, neither 4.2 nor 4.3 blocks: the safety guards, sandbox, and install docs
+are all verified for that configuration. 4.3 breadth is the gate for *broad*
+distribution — a stranger on native Linux or Windows-without-WSL — which is
+Phase 5's job, not Phase 4's. So: **closed for a one-person WSL handoff; 4.3 must
+close before Phase 5 distribution.**
 
 ---
 
