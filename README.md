@@ -153,6 +153,33 @@ default), **Workspace folder is effectively required**; the rest are optional:
 Leave the setup script blank if you don't use ROS: the Linux tools work
 independently, and ROS tools reply with a clear `available: false` message.
 
+### Changing settings requires restarting the extension
+
+Claude Desktop does **not** restart the MCP server when you change its
+settings. A running server keeps the **workspace scope and code version it
+started with** — potentially for hours. You can rescope **Workspace folder** to
+a smaller directory, believe edits are now confined there, and still have an
+older server running with the *previous, broader* scope. (Observed in
+development: one server ran ~15 hours across three workspace changes and two
+version installs without ever picking them up.)
+
+After changing any setting, **restart the server** — toggle the extension off
+and on in **Settings → Extensions**, or restart Claude Desktop.
+
+**Confirm which config is actually live** with the refusal readout: ask
+Millwright to edit a file you *know* is outside your intended workspace (e.g. a
+file in another project). The refusal names the workspace the running server
+really has:
+
+```
+refused: '…' is outside the configured workspace (⟵ this is the live workspace_dir).
+```
+
+If that parenthesized path isn't the folder you just set, the server is stale —
+restart it. On Windows, give the edit target as a WSL UNC path
+(`\\wsl.localhost\<distro>\home\…`), **not** a POSIX `/home/…` path: a POSIX
+path fails host-side with a generic "path not found" before the guard runs.
+
 ### First prompts: name the extension
 
 Millwright's tool names are deliberately generic (`run_command`,
