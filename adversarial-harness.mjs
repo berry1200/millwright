@@ -115,38 +115,44 @@ message(FATAL_ERROR "PROBE net=\${NET} etc=\${ETC} tmp=\${TMP}")
   await sleep(4000);
   const pids = (await pexec("bash", ["-c", "docker stats --no-stream --format '{{.PIDs}}' mw_pidbomb"])).stdout.trim();
   const hostAfter = (await pexec("bash", ["-c", "ps -e | wc -l"])).stdout.trim();
-  const alive = (await pexec("bash", ["-c", "ps -e -o comm= | grep -cx turtlesim_node || true"])).stdout.trim();
+  // Real property (same shape as the cpus test): with the bomb saturated, is the
+  // HOST still responsive? Trivial host work should round-trip fast. We do NOT
+  // assert on the host process count: container PIDs appearing in the host table
+  // is an artifact of WHERE Docker runs - native on hosted runners (they show
+  // up), in a Linux VM on Docker Desktop (they don't) - not a safety signal.
+  const t0 = Date.now();
+  await pexec("bash", ["-c", "for i in $(seq 200); do :; done"]);
+  const hostLatency = Date.now() - t0;
   await pexec("bash", ["-c", "docker rm -f mw_pidbomb >/dev/null 2>&1 || true"]);
   console.log(`     dedicated container (cap 512, 2000 sleeps requested): host-side PIDs = ${pids}`);
-  console.log(`     host process count before/after: ${hostBefore} -> ${hostAfter}`);
+  console.log(`     host process count before/after (informational, env-dependent): ${hostBefore} -> ${hostAfter}; host round-trip ${hostLatency}ms`);
   verdict(Number(pids) === 512, "cap SATURATED at 512 - bomb contained (did not reach 2000)", `pids=${pids}`);
-  verdict(Number(hostAfter) < Number(hostBefore) + 100, "host process table not blown up");
-  // turtlesim is informational only: it is NOT running on a clean CI runner,
-  // so asserting on it would fail the job for an unrelated reason.
-  console.log(`     (informational) turtlesim running on host: ${alive}`);
+  verdict(hostLatency < 2000, "host stayed responsive during the pid bomb", `round-trip ${hostLatency}ms`);
 } else if (scenario === "memory") {
   hr("memory bomb vs --memory 2g (host must stay healthy)");
   const freeBefore = (await pexec("bash", ["-c", "free -m | awk '/Mem:/{print $7}'"])).stdout.trim();
   const maxProbe = await runCommand("cat /sys/fs/cgroup/memory.max");
   const t0 = Date.now();
-  // `tail /dev/zero` buffers an infinite newline-less stream -> allocates fast;
-  // the cgroup OOM-killer should kill it (exit 137) at ~2g, host untouched.
-  // 60s, not 25s: `tail /dev/zero` allocation speed varies ~2x with machine
-  // load, and a timeout-kill (124) instead of an OOM-kill (137) would prove
-  // nothing about the memory cap. Generous budget keeps this non-flaky in CI.
-  const r = await runCommand("tail /dev/zero", 60000);
+  // Fill RAM fast enough to hit the 2g cap on a 2-core hosted runner. Capture a
+  // >2g stream into a shell variable: command substitution accumulates the whole
+  // output in the PARENT bash's memory, so bash (highest RSS) is the OOM target
+  // (exit 137). `tr` converts the NULs to a printable byte first, because bash
+  // variables can't hold NUL. This replaces `tail /dev/zero`, which on a 2-core
+  // runner did not reach 2g within a bounded time - a timeout-kill (124) proves
+  // nothing about the cap. Throughput here is `tr`-bound (~GB/s), not core-bound,
+  // so it crosses 2g in seconds regardless of how many cores the runner has.
+  const bomb = "A=$(head -c 3000000000 /dev/zero | tr '\\0' 'a'); echo filled=${#A}";
+  const r = await runCommand(bomb, 60000);
   const oom = await runCommand("grep oom_kill /sys/fs/cgroup/memory.events 2>/dev/null || echo none");
   console.log(`     memory.max=${(maxProbe.stdout||"").trim()}  attempt exit=${r.exitCode} timedOut=${r.timedOut} in ${Date.now() - t0}ms`);
   console.log(`     cgroup memory.events oom: ${(oom.stdout||"").trim()}`);
   await sleep(1500);
   const freeAfter = (await pexec("bash", ["-c", "free -m | awk '/Mem:/{print $7}'"])).stdout.trim();
-  const alive = (await pexec("bash", ["-c", "ps -e -o comm= | grep -cx turtlesim_node || true"])).stdout.trim();
   const still = await runCommand("echo container-still-responsive");
   console.log(`     host available MB before/after: ${freeBefore} -> ${freeAfter}`);
   const oomKilled = /oom_kill (\d+)/.exec(oom.stdout || "");
   verdict(r.exitCode === 137 || (oomKilled && Number(oomKilled[1]) > 0), "attacker OOM-killed at the 2g cap (exit 137 / oom_kill>0)", `exit=${r.exitCode}`);
   verdict(/still-responsive/.test(still.stdout || ""), "sandbox still usable after the bomb");
-  console.log(`     (informational) turtlesim running on host: ${alive}`);
 } else if (scenario === "cpus") {
   hr("CPU spinner vs --cpus cap (host must stay responsive)");
   // Like pids/memory: a spinner burns CPU indefinitely and a docker-exec child
@@ -165,12 +171,10 @@ message(FATAL_ERROR "PROBE net=\${NET} etc=\${ETC} tmp=\${TMP}")
   const t0 = Date.now();
   await pexec("bash", ["-c", "for i in $(seq 200); do :; done"]); // trivial host work
   const hostLatency = Date.now() - t0;
-  const alive = (await pexec("bash", ["-c", "ps -e -o comm= | grep -cx turtlesim_node || true"])).stdout.trim();
   await pexec("bash", ["-c", "docker rm -f mw_cpubomb >/dev/null 2>&1 || true"]);
   const cpuNum = parseFloat((cpu || "0").replace("%", "").trim());
-  console.log(`     host cores=${cores}; container capped at --cpus 1; measured CPU=${cpu} (uncapped ~${Number(cores) * 100}%); host round-trip ${hostLatency}ms; turtlesim running=${alive}`);
+  console.log(`     host cores=${cores}; container capped at --cpus 1; measured CPU=${cpu} (uncapped ~${Number(cores) * 100}%); host round-trip ${hostLatency}ms`);
   verdict(cpuNum > 0 && cpuNum <= 135, "CPU held near 1 core despite spinning all cores", `measured ${cpu}`);
-  // Host-responsiveness is the real signal (turtlesim may not be running).
   verdict(hostLatency < 2000, "host stayed responsive during the spinner", `round-trip ${hostLatency}ms`);
 } else {
   console.error("unknown scenario:", scenario);
