@@ -7,6 +7,8 @@ import {
   sandboxEnabled,
   isDockerAvailable,
   isInsideWorkspace,
+  resolveCandidatePath,
+  toWslPosix,
   buildRunInvocation,
   forceRemoveContainer,
   SANDBOX_UNAVAILABLE_MSG,
@@ -311,14 +313,19 @@ export async function createRosPackage(
   // Sandbox allowlist: scaffolding writes files, so the destination must be
   // inside the configured workspace when sandboxing is on - same rule as
   // patch_file (one folder, one mental model).
+  // Translate first (POSIX->WSL UNC on Windows, relatives against the workspace
+  // root), gate on the host-addressable form, then hand the WSL-side POSIX form
+  // to ros2 pkg create. See resolveCandidatePath's security note.
+  const hostDest = resolveCandidatePath(destinationDirectory);
   if (sandboxEnabled()) {
-    const gate = await isInsideWorkspace(destinationDirectory);
-    if (!gate.ok) return { available: true, created: false, reason: gate.reason };
+    const gate = await isInsideWorkspace(hostDest);
+    if (!gate.ok) return { available: true, created: false, reason: gate.reason, resolved_path: hostDest };
   }
+  const destDir = toWslPosix(hostDest);
   // When the sourcing wrapper is active, mkdir happens inside the wrapper
-  // script - destinationDirectory may be a WSL-internal path the host Node
-  // can't create. Direct mode keeps the old Node-side mkdir.
-  if (!rosWrapperActive) await mkdir(destinationDirectory, { recursive: true });
+  // script - destDir may be a WSL-internal path the host Node can't create.
+  // Direct mode keeps the old Node-side mkdir.
+  if (!rosWrapperActive) await mkdir(destDir, { recursive: true });
   const args = [
     "ros2",
     "pkg",
@@ -327,18 +334,19 @@ export async function createRosPackage(
     "--build-type",
     buildType,
     "--destination-directory",
-    destinationDirectory,
+    destDir,
   ];
   if (dependencies.length) args.push("--dependencies", ...dependencies);
   if (nodeName) args.push("--node-name", nodeName);
   try {
-    const inv = rosInvocation(args, { mkdir: destinationDirectory });
+    const inv = rosInvocation(args, { mkdir: destDir });
     const { stdout, stderr } = await execFileAsync(inv.cmd, inv.args, { timeout: 60000 });
     return {
       available: true,
       created: true,
       package: packageName,
-      path: `${destinationDirectory.replace(/\/+$/, "")}/${packageName}`,
+      path: `${destDir.replace(/\/+$/, "")}/${packageName}`,
+      resolved_path: hostDest,
       build_type: buildType,
       stdout: truncateOutput(stdout),
       stderr: truncateOutput(stderr),
@@ -373,6 +381,12 @@ export async function buildRosWorkspace(
   packages: string[] = [],
   timeoutMs = 600000
 ) {
+  // Translate the workspace path once: `hostWs` is host-addressable (for the
+  // containment gate + realpath); `cmdWs` is the POSIX form the WSL-routed
+  // colcon command expects (a no-op on native Linux). See resolveCandidatePath.
+  const hostWs = resolveCandidatePath(workspacePath);
+  const cmdWs = toWslPosix(hostWs);
+
   // Sandbox lane (default). Linux hosts: build inside the official
   // ros:<distro>-ros-base container with --network=none (builds need the ROS
   // install and the workspace - not DDS, not the internet). Windows hosts:
@@ -385,9 +399,9 @@ export async function buildRosWorkspace(
     // patch_file/create_ros_package - builds were previously the one ungated
     // path argument, and on Windows they run host-side. allowRoot because
     // building the configured workspace root itself IS the normal colcon flow.
-    const buildGate = await isInsideWorkspace(workspacePath, { allowRoot: true });
+    const buildGate = await isInsideWorkspace(hostWs, { allowRoot: true });
     if (!buildGate.ok) {
-      return { available: true, success: false, workspace_refused: true, reason: buildGate.reason };
+      return { available: true, success: false, workspace_refused: true, reason: buildGate.reason, resolved_path: hostWs };
     }
     if (!IS_WINDOWS) {
       if (!(await isDockerAvailable())) return { available: false, message: SANDBOX_UNAVAILABLE_MSG };
@@ -404,7 +418,7 @@ export async function buildRosWorkspace(
       }
       const warn = workspaceScopeWarning();
       const colconArgs = ["build", ...(packages.length ? ["--packages-select", ...packages] : [])];
-      const inv = buildRunInvocation(distro, workspacePath, colconArgs);
+      const inv = buildRunInvocation(distro, cmdWs, colconArgs);
       try {
         const { stdout, stderr } = await execFileAsync(inv.cmd, inv.args, {
           timeout: timeoutMs,
@@ -414,6 +428,7 @@ export async function buildRosWorkspace(
           available: true,
           success: true,
           sandboxed: true,
+          resolved_path: hostWs,
           ...(warn ? { workspace_warning: warn } : {}),
           image: `ros:${distro}-ros-base`,
           network: "none",
@@ -429,6 +444,7 @@ export async function buildRosWorkspace(
           available: true,
           success: false,
           sandboxed: true,
+          resolved_path: hostWs,
           ...(warn ? { workspace_warning: warn } : {}),
           image: `ros:${distro}-ros-base`,
           exitCode: err.code ?? 1,
@@ -448,9 +464,9 @@ export async function buildRosWorkspace(
   try {
     // Wrapper active: cd into the workspace inside the wrapper script (the
     // path may be WSL-internal). Direct mode: plain Node cwd, as before.
-    const inv = rosInvocation(args, { cwd: workspacePath });
+    const inv = rosInvocation(args, { cwd: cmdWs });
     const { stdout, stderr } = await execFileAsync(inv.cmd, inv.args, {
-      ...(rosWrapperActive ? {} : { cwd: workspacePath }),
+      ...(rosWrapperActive ? {} : { cwd: cmdWs }),
       timeout: timeoutMs,
       maxBuffer: 10 * 1024 * 1024,
     });
@@ -458,6 +474,7 @@ export async function buildRosWorkspace(
       available: true,
       success: true,
       ...(windowsCarveOut ? { sandboxed: false, warning: WINDOWS_BUILD_WARNING } : {}),
+      resolved_path: hostWs,
       exitCode: 0,
       stdout: truncateOutput(stdout),
       stderr: truncateOutput(stderr),
@@ -467,6 +484,7 @@ export async function buildRosWorkspace(
       available: true,
       success: false,
       ...(windowsCarveOut ? { sandboxed: false, warning: WINDOWS_BUILD_WARNING } : {}),
+      resolved_path: hostWs,
       exitCode: err.code ?? 1,
       timedOut: Boolean(err.killed),
       stdout: truncateOutput(err.stdout ?? ""),

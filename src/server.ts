@@ -20,7 +20,7 @@ import {
   buildRosWorkspace,
 } from "./ros-tools.js";
 
-export const VERSION = "0.4.4";
+export const VERSION = "0.4.5";
 
 export function buildServer(): McpServer {
   const server = new McpServer({

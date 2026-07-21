@@ -613,6 +613,18 @@ New evidence, all message-level logs rather than source audit:
   Found by probing the stale instance during the re-investigation. Now gated,
   with `allowRoot` because building the configured workspace root itself is
   the normal colcon flow. Unit-verified via subprocess probes (8/8 green).
+- **0.4.5 path translation (2026-07-21):** structural Windows fix. Because
+  run_command executes in-container and returns POSIX paths, the model then
+  hands patch_file / build / create a POSIX path, which host-side on Windows
+  resolves to `C:\home\...` and dies "not found" BEFORE the gate — so the guard
+  was silently never reached for Windows users. `resolveCandidatePath`
+  (sandbox.ts) now normalizes POSIX->WSL-UNC (and `/mnt/<d>`->`<D>:\`) and
+  resolves relatives against the workspace root; applied by patch_file,
+  create_ros_package, and the build gate, with `resolved_path` echoed on every
+  result. ORDER is the whole safety argument: translate THEN gate, never gate
+  the pre-translation string. Adversarially verified on win32 that
+  `/mnt/c/...`->`C:\...` (e.g. `C:\Windows\...\hosts`) and post-translation `..`
+  escapes are REFUSED by the gate — unit tests (12/12) + a win32 patchFile probe.
 
 **Still-open (the real, harder fix):**
 - Even the root guard + hard-refusal does NOT stop `rm -rf <ws>/<child>` inside

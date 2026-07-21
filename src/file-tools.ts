@@ -1,5 +1,5 @@
 import { readFile, writeFile } from "node:fs/promises";
-import { sandboxEnabled, isInsideWorkspace } from "./sandbox.js";
+import { sandboxEnabled, isInsideWorkspace, resolveCandidatePath } from "./sandbox.js";
 
 /**
  * Diff-style file editing: find an exact `search` block and replace it with
@@ -28,20 +28,26 @@ export async function patchFile(
     return { applied: false, reason: "search block is empty; provide the exact text to find." };
   }
 
+  // Normalize the model's path (POSIX->WSL UNC on Windows, relatives against
+  // the workspace root) BEFORE gating - never gate the pre-translation string
+  // (see resolveCandidatePath's security note). `resolved_path` is echoed back
+  // on every outcome so the translation is auditable, not silent.
+  const target = resolveCandidatePath(path);
+
   // Sandbox allowlist: when sandboxing is on, edits are confined to the
-  // configured workspace (the same directory the containers mount) - checked
-  // BEFORE the file is read, so nothing outside the workspace is even opened.
+  // configured workspace - checked on the TRANSLATED path, BEFORE the file is
+  // read, so nothing outside the workspace is even opened.
   if (sandboxEnabled()) {
-    const gate = await isInsideWorkspace(path);
-    if (!gate.ok) return { applied: false, reason: gate.reason };
+    const gate = await isInsideWorkspace(target);
+    if (!gate.ok) return { applied: false, reason: gate.reason, resolved_path: target };
   }
 
   let content: string;
   try {
-    content = await readFile(path, "utf8");
+    content = await readFile(target, "utf8");
   } catch (err: any) {
-    if (err.code === "ENOENT") return { applied: false, reason: `file not found: ${path}` };
-    return { applied: false, reason: `could not read ${path}: ${err.message}` };
+    if (err.code === "ENOENT") return { applied: false, reason: `file not found: ${target}`, resolved_path: target };
+    return { applied: false, reason: `could not read ${target}: ${err.message}`, resolved_path: target };
   }
 
   // Count non-overlapping occurrences via split (literal, no regex semantics).
@@ -49,6 +55,7 @@ export async function patchFile(
   if (occurrences === 0) {
     return {
       applied: false,
+      resolved_path: target,
       reason:
         "search block not found. It must match verbatim, including indentation, " +
         "whitespace and newlines.",
@@ -57,6 +64,7 @@ export async function patchFile(
   if (occurrences > 1 && !opts.replaceAll) {
     return {
       applied: false,
+      resolved_path: target,
       reason:
         `search block matches ${occurrences} times; refusing to guess which one. ` +
         `Add surrounding context to make it unique, or set replace_all to replace all ${occurrences}.`,
@@ -74,14 +82,15 @@ export async function patchFile(
   }
 
   try {
-    await writeFile(path, updated, "utf8");
+    await writeFile(target, updated, "utf8");
   } catch (err: any) {
-    return { applied: false, reason: `could not write ${path}: ${err.message}` };
+    return { applied: false, reason: `could not write ${target}: ${err.message}`, resolved_path: target };
   }
 
   return {
     applied: true,
-    path,
+    path: target,
+    resolved_path: target,
     replacements: opts.replaceAll ? occurrences : 1,
     bytes_before: Buffer.byteLength(content, "utf8"),
     bytes_after: Buffer.byteLength(updated, "utf8"),

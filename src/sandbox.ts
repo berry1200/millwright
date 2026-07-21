@@ -70,6 +70,78 @@ export function sandboxStartupLine(version: string): string {
   return `millwright ${version} · workspace=${ws} · sandbox=${SANDBOX_MODE} · pid=${process.pid}`;
 }
 
+/**
+ * Normalize a model-supplied path to a host-addressable form BEFORE the
+ * workspace gate runs. Fixes two structural failures, both of which otherwise
+ * defeat the gate on Windows by failing to resolve *before* it is reached:
+ *   - run_command runs in-container and prints POSIX paths, so the model hands
+ *     patch_file / build a POSIX path next; host-side on Windows `/home/x` is
+ *     read as `C:\home\x` and dies "not found" before the gate.
+ *   - relative paths resolve against the server's cwd (the extension dir on
+ *     Windows), not the workspace the model is reasoning about.
+ *
+ * SECURITY: translation can move a path OUTSIDE the workspace - `/mnt/c/... ->
+ * C:\...`, or `..` segments that only traverse after translation. That is
+ * intentional and safe ONLY because every caller passes the RESULT of this to
+ * isInsideWorkspace(), which realpath-resolves and refuses anything not
+ * strictly beneath the workspace. Translate first, gate second, never gate the
+ * pre-translation string. This ordering is the whole safety argument; the
+ * `translate` unit tests exist to keep it honest.
+ *
+ * Pure and platform-injected so the win32 translation is testable from a Linux
+ * CI runner; the module-bound `resolveCandidatePath` is the real entry point.
+ */
+export function resolveCandidatePathFor(
+  candidate: string,
+  opts: { isWindows: boolean; distro: string; workspaceRoot?: string }
+): string {
+  if (!candidate) return candidate;
+  const { isWindows, distro, workspaceRoot } = opts;
+  const isWinAbs = /^[a-zA-Z]:[\\/]/.test(candidate) || candidate.startsWith("\\\\");
+  const isPosixAbs = /^\/(?!\/)/.test(candidate);
+
+  // Relative -> resolve against the workspace root. join() normalizes embedded
+  // `..`, which the gate then independently re-checks via realpath.
+  if (!isWinAbs && !isPosixAbs) {
+    if (!workspaceRoot) return candidate;
+    return (isWindows ? path.win32 : path.posix).join(workspaceRoot, candidate);
+  }
+
+  // POSIX-absolute on Windows -> the Windows-addressable equivalent.
+  if (isWindows && isPosixAbs) {
+    const mnt = candidate.match(/^\/mnt\/([a-zA-Z])(?:\/(.*))?$/);
+    if (mnt) {
+      const rest = (mnt[2] ?? "").replace(/\//g, "\\");
+      return `${mnt[1].toUpperCase()}:\\${rest}`;
+    }
+    return `\\\\wsl.localhost\\${distro}${candidate.replace(/\//g, "\\")}`;
+  }
+
+  return candidate;
+}
+
+export function resolveCandidatePath(candidate: string): string {
+  return resolveCandidatePathFor(candidate, {
+    isWindows: IS_WINDOWS,
+    distro: WSL_DISTRO,
+    workspaceRoot: RAW_WORKSPACE_DIR,
+  });
+}
+
+/**
+ * Inverse of the Windows translation: a host-addressable path -> the POSIX form
+ * a WSL-routed command (colcon build, ros2 pkg create via wsl.exe) expects.
+ * Idempotent on an already-POSIX path, so callers can apply it unconditionally
+ * and it is a no-op on native Linux.
+ */
+export function toWslPosix(p: string): string {
+  const unc = p.match(/^\\\\wsl(?:\.localhost|\$)\\[^\\]+(\\.*)$/i);
+  if (unc) return unc[1].replace(/\\/g, "/");
+  const drive = p.match(/^([a-zA-Z]):[\\/](.*)$/);
+  if (drive) return `/mnt/${drive[1].toLowerCase()}/${drive[2].replace(/\\/g, "/")}`;
+  return p.replace(/\\/g, "/");
+}
+
 let dockerAvailableCache: boolean | null = null;
 
 export async function isDockerAvailable(): Promise<boolean> {

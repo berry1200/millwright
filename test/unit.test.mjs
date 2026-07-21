@@ -4,7 +4,7 @@
 // (npm run test:sandbox / test:ros), which need their environments.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -12,7 +12,7 @@ import { pathToFileURL } from "node:url";
 
 import { isCommandBlocked, truncateOutput } from "../dist/shell-tools.js";
 import { patchFile } from "../dist/file-tools.js";
-import { isDangerousWorkspaceRoot } from "../dist/sandbox.js";
+import { isDangerousWorkspaceRoot, resolveCandidatePathFor, toWslPosix } from "../dist/sandbox.js";
 
 test("blocklist blocks catastrophic rm/mkfs/dd/forkbomb", () => {
   for (const c of [
@@ -166,5 +166,78 @@ test("buildRosWorkspace: sandboxed build refuses workspace_path outside the work
   } finally {
     rmSync(ws, { recursive: true, force: true });
     rmSync(outside, { recursive: true, force: true });
+  }
+});
+
+// ---- path translation (resolveCandidatePathFor / toWslPosix) ---------------
+// Pure + platform-injected, so the win32 translation is provable from a Linux
+// CI runner. The security-critical property is ORDER: translation may push a
+// path out of the workspace; the gate (tested above + composed below) is what
+// refuses it.
+const WIN_WS = "\\\\wsl.localhost\\Ubuntu\\home\\berry_james\\projects\\millwright";
+const winOpts = { isWindows: true, distro: "Ubuntu", workspaceRoot: WIN_WS };
+
+test("resolveCandidatePathFor (win32): POSIX->UNC, /mnt->drive, relatives joined, .. preserved", () => {
+  // the exact failure mode: run_command's POSIX path -> host-addressable UNC
+  assert.equal(
+    resolveCandidatePathFor("/home/berry_james/projects/millwright/src/x.ts", winOpts),
+    `${WIN_WS}\\src\\x.ts`
+  );
+  // ATTACK 1: /mnt/<drive> translates to a Windows drive OUTSIDE a WSL workspace
+  assert.equal(resolveCandidatePathFor("/mnt/c/Users/me/secret", winOpts), "C:\\Users\\me\\secret");
+  assert.equal(resolveCandidatePathFor("/mnt/d", winOpts), "D:\\");
+  // ATTACK 2: embedded .. is preserved verbatim so the gate's realpath collapses it
+  assert.equal(
+    resolveCandidatePathFor("/home/berry_james/projects/millwright/../vigil247/x", winOpts),
+    `${WIN_WS}\\..\\vigil247\\x`
+  );
+  // relative resolves against the workspace root (win32 join semantics)
+  assert.equal(resolveCandidatePathFor("src/a.ts", winOpts), `${WIN_WS}\\src\\a.ts`);
+  // already Windows/UNC paths are left untouched
+  assert.equal(resolveCandidatePathFor("C:\\Users\\x", winOpts), "C:\\Users\\x");
+  assert.equal(resolveCandidatePathFor(`${WIN_WS}\\y`, winOpts), `${WIN_WS}\\y`);
+});
+
+test("resolveCandidatePathFor (non-win): POSIX untouched, relatives joined and .. normalized out", () => {
+  const nix = { isWindows: false, distro: "Ubuntu", workspaceRoot: "/home/b/projects/millwright" };
+  assert.equal(resolveCandidatePathFor("/home/b/x", nix), "/home/b/x");
+  assert.equal(resolveCandidatePathFor("src/a", nix), "/home/b/projects/millwright/src/a");
+  assert.equal(resolveCandidatePathFor("../vigil247/x", nix), "/home/b/projects/vigil247/x");
+});
+
+test("toWslPosix: UNC->/, drive->/mnt, POSIX passthrough (idempotent on Linux)", () => {
+  assert.equal(toWslPosix("\\\\wsl.localhost\\Ubuntu\\home\\b\\x"), "/home/b/x");
+  assert.equal(toWslPosix("C:\\Users\\me\\p"), "/mnt/c/Users/me/p");
+  assert.equal(toWslPosix("/home/b/x"), "/home/b/x");
+});
+
+test("translate-then-gate: a .. path that escapes the workspace is REFUSED (order matters)", () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "mw-comp-"));
+  const ws = path.join(parent, "ws");
+  const outside = path.join(parent, "outside");
+  mkdirSync(ws);
+  mkdirSync(outside);
+  writeFileSync(path.join(outside, "f.txt"), "SECRET\n");
+  mkdirSync(path.join(ws, "sub"));
+  writeFileSync(path.join(ws, "sub", "g.txt"), "HELLO\n");
+  const env = { SANDBOX_MODE: "docker", WORKSPACE_DIR: ws };
+  try {
+    // Pre-gate, translation normalizes the escape to a real out-of-workspace path...
+    const escaped = resolveCandidatePathFor("../outside/f.txt", { isWindows: false, distro: "Ubuntu", workspaceRoot: ws });
+    assert.equal(escaped, path.join(outside, "f.txt"));
+
+    // ...and the REAL patchFile (translate -> gate) must refuse it, untouched.
+    const esc = probeModule(env, "file-tools.js", `m.patchFile("../outside/f.txt", "SECRET", "PWNED")`);
+    assert.equal(esc.applied, false, `escape must be refused; got ${JSON.stringify(esc)}`);
+    assert.match(esc.reason, /outside the configured workspace/);
+    assert.ok(String(esc.resolved_path).includes("outside"), "resolved_path echoes the translated target");
+    assert.equal(readFileSync(path.join(outside, "f.txt"), "utf8"), "SECRET\n", "target left byte-identical");
+
+    // Control: an in-workspace relative path translates inside and DOES apply.
+    const ok = probeModule(env, "file-tools.js", `m.patchFile("sub/g.txt", "HELLO", "HI")`);
+    assert.equal(ok.applied, true, `in-workspace relative should apply; got ${JSON.stringify(ok)}`);
+    assert.ok(String(ok.resolved_path).includes(path.join("sub", "g.txt")) || String(ok.resolved_path).includes("sub/g.txt"));
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
   }
 });
