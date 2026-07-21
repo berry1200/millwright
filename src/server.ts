@@ -20,10 +20,12 @@ import {
   buildRosWorkspace,
 } from "./ros-tools.js";
 
+export const VERSION = "0.4.4";
+
 export function buildServer(): McpServer {
   const server = new McpServer({
     name: "millwright",
-    version: "0.4.4",
+    version: VERSION,
   });
 
   // ---- Layer 1: general Linux execution ----------------------------------

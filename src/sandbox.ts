@@ -60,6 +60,16 @@ export function workspaceMountPath(): string | undefined {
   return RAW_WORKSPACE_DIR;
 }
 
+/** One-line startup banner (stderr, never stdout - stdout is the JSON-RPC
+ * channel) so the MCP client log records which version, workspace scope, and
+ * sandbox mode a running server actually has. This is the datum that was
+ * missing when a stale instance had to be dated by hand during the 2026-07-19
+ * incident: a client log now says, per process, exactly what config is live. */
+export function sandboxStartupLine(version: string): string {
+  const ws = RAW_WORKSPACE_DIR ?? "(unset)";
+  return `millwright ${version} · workspace=${ws} · sandbox=${SANDBOX_MODE} · pid=${process.pid}`;
+}
+
 let dockerAvailableCache: boolean | null = null;
 
 export async function isDockerAvailable(): Promise<boolean> {
