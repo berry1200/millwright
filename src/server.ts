@@ -20,7 +20,20 @@ import {
   buildRosWorkspace,
 } from "./ros-tools.js";
 
-export const VERSION = "0.5.0";
+export const VERSION = "0.5.1";
+
+/** Wrap a tool payload as an MCP text result, prefixed with millwright_version
+ * so a stale server is caught on the FIRST call in ANY client. The stderr
+ * banner can't do this — MCP clients don't surface server stderr — and a stale
+ * long-running process is invisible until a result proves which build answered.
+ * Object payloads are spread; the version key leads. */
+function reply(payload: Record<string, unknown>) {
+  return {
+    content: [
+      { type: "text" as const, text: JSON.stringify({ millwright_version: VERSION, ...payload }, null, 2) },
+    ],
+  };
+}
 
 export function buildServer(): McpServer {
   const server = new McpServer({
@@ -49,7 +62,7 @@ export function buildServer(): McpServer {
     { title: "Run shell command", readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
     async ({ command, timeout_ms, cwd }) => {
       const result = await runCommand(command, timeout_ms, cwd);
-      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      return reply(result);
     }
   );
 
@@ -76,7 +89,7 @@ export function buildServer(): McpServer {
     { title: "Patch file", readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
     async ({ path, search, replace, replace_all }) => {
       const result = await patchFile(path, search, replace, { replaceAll: replace_all });
-      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      return reply(result);
     }
   );
 
@@ -100,27 +113,17 @@ export function buildServer(): McpServer {
       if (sandboxEnabled()) {
         const refusal = workspaceHardRefusal();
         if (refusal) {
-          return {
-            content: [{ type: "text", text: JSON.stringify({ workspace_refused: true, message: refusal }) }],
-          };
+          return reply({ workspace_refused: true, message: refusal });
         }
         if (!(await isDockerAvailable())) {
-          return {
-            content: [
-              { type: "text", text: JSON.stringify({ sandbox_available: false, message: SANDBOX_UNAVAILABLE_MSG }) },
-            ],
-          };
+          return reply({ sandbox_available: false, message: SANDBOX_UNAVAILABLE_MSG });
         }
         const inv = jobRunInvocation(command, args);
         const job = jobManager.start(inv.cmd, inv.args, name, undefined, inv.containerName);
-        return {
-          content: [
-            { type: "text", text: JSON.stringify({ job_id: job.id, status: job.status, sandboxed: true }) },
-          ],
-        };
+        return reply({ job_id: job.id, status: job.status, sandboxed: true });
       }
       const job = jobManager.start(command, args, name);
-      return { content: [{ type: "text", text: JSON.stringify({ job_id: job.id, status: job.status }) }] };
+      return reply({ job_id: job.id, status: job.status });
     }
   );
 
@@ -138,7 +141,7 @@ export function buildServer(): McpServer {
         status: j.status,
         started_at: new Date(j.startedAt).toISOString(),
       }));
-      return { content: [{ type: "text", text: JSON.stringify(jobs, null, 2) }] };
+      return reply({ jobs });
     }
   );
 
@@ -153,7 +156,7 @@ export function buildServer(): McpServer {
     { title: "Read job logs", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async ({ job_id, tail_lines }) => {
       const lines = jobManager.tailLogs(job_id, tail_lines);
-      return { content: [{ type: "text", text: lines.join("\n") || "(no output yet)" }] };
+      return reply({ logs: lines.join("\n") || "(no output yet)" });
     }
   );
 
@@ -168,7 +171,7 @@ export function buildServer(): McpServer {
     { title: "Stop background job", readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
     async ({ job_id, grace_period_sec }) => {
       await jobManager.stop(job_id, "SIGINT", grace_period_sec * 1000);
-      return { content: [{ type: "text", text: `Stopped ${job_id}` }] };
+      return reply({ stopped: job_id });
     }
   );
 
@@ -182,7 +185,7 @@ export function buildServer(): McpServer {
     { title: "List ROS nodes", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async ({ filter }) => {
       const result = await listRosNodes(filter);
-      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      return reply(result);
     }
   );
 
@@ -195,7 +198,7 @@ export function buildServer(): McpServer {
     { title: "Get ROS graph", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async ({ include_hidden }) => {
       const result = await getRosGraph(include_hidden);
-      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      return reply(result);
     }
   );
 
@@ -229,7 +232,7 @@ export function buildServer(): McpServer {
     { title: "Sample ROS topic", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async ({ topic_name, message_type, max_messages, timeout_sec }) => {
       const result = await sampleRosTopic(topic_name, message_type, max_messages, timeout_sec);
-      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      return reply(result);
     }
   );
 
@@ -251,7 +254,7 @@ export function buildServer(): McpServer {
     { title: "Start ROS launch job", readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     async ({ package_name, launch_file, arguments: args, ros_node_name }) => {
       const result = await startRosLaunchJob(package_name, launch_file, args, ros_node_name);
-      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      return reply(result);
     }
   );
 
@@ -266,7 +269,7 @@ export function buildServer(): McpServer {
     { title: "Restart ROS node", readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
     async ({ node_name, grace_period_sec }) => {
       const result = await restartRosNode(node_name, grace_period_sec);
-      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      return reply(result);
     }
   );
 
@@ -305,7 +308,7 @@ export function buildServer(): McpServer {
         dependencies,
         node_name
       );
-      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      return reply(result);
     }
   );
 
@@ -327,7 +330,7 @@ export function buildServer(): McpServer {
     { title: "Build ROS workspace", readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
     async ({ workspace_path, packages, timeout_ms }) => {
       const result = await buildRosWorkspace(workspace_path, packages, timeout_ms);
-      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      return reply(result);
     }
   );
 

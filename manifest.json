@@ -2,7 +2,7 @@
   "manifest_version": "0.3",
   "name": "millwright",
   "display_name": "Millwright",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "Millwright — an MCP server for Linux and ROS 2 development: shell, file editing, background jobs, ROS 2 introspection, simulation, and workspace builds, with a simulation-first safety posture.",
   "long_description": "Millwright is an execution layer that lets the model work as a Linux developer and a ROS 2 robotics developer through one consistent tool schema: run bounded shell commands, edit files by exact search/replace, manage background jobs, introspect the ROS 2 graph, sample topics, launch and restart nodes it owns, scaffold packages, and run colcon builds with real compiler errors returned on failure.\n\nROS tools require a ROS 2 installation (validated against ROS 2 Lyrical on Ubuntu 26.04; Jazzy/Humble should work via the setup-script setting). Set `ros_setup_script` so the server can source your ROS environment - on Windows this path is inside your WSL distro and commands are routed through WSL automatically. All ROS tools degrade gracefully (clear `available: false` message) when ROS is absent; the Linux tools work everywhere a POSIX shell exists.",
   "author": {

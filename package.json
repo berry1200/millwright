@@ -1,6 +1,6 @@
 {
   "name": "millwright",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "Millwright — an MCP server for Linux and ROS 2 development. Model-agnostic (Claude, Codex, Gemini).",
   "license": "Apache-2.0",
   "type": "module",
@@ -13,7 +13,7 @@
     "start": "node dist/index.js",
     "dev": "tsc --watch",
     "pretest": "tsc",
-    "test": "SANDBOX_MODE=off node --test test/unit.test.mjs",
+    "test": "SANDBOX_MODE=off node --test test/unit.test.mjs test/wire.test.mjs",
     "test:sandbox": "bash test-docker.sh",
     "test:ros": "bash test-ros.sh"
   },
