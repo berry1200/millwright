@@ -14,7 +14,7 @@ export interface Job {
   startedAt: number;
   proc: ChildProcess;
   logLines: string[];
-  // ROS-specific bookkeeping so restart_ros_node can find and relaunch a
+  // ROS-specific bookkeeping so ros_restart can find and relaunch a
   // node that was started through this manager.
   rosNodeName?: string;
   // Sandboxed jobs run as an attached `docker run`; killing the client does
@@ -30,7 +30,7 @@ const MAX_LOG_LINES = 2000;
  * because MCP tool calls are request/response - launching `ros2 launch`
  * or a Gazebo sim directly in a tool handler would hang the call forever.
  * Instead we spawn, detach into this registry, and hand back a job_id
- * immediately. The LLM polls read_job_logs / list_background_jobs.
+ * immediately. The LLM polls job_logs / job_list.
  */
 class JobManager {
   private jobs = new Map<string, Job>();

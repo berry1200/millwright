@@ -86,7 +86,7 @@ for a developer tool, but it is a conscious one — revisit at v2.
 |---|---|---|---|
 | Wordmark | Geometric sans (Inter, General Sans, or similar) | 500 | Tight tracking. Never all-caps — "Millwright" is a word, not an acronym. |
 | UI / body | Inter, system-ui fallback | 400 / 500 | Two weights only. |
-| Code, paths, tool names, terminal output | JetBrains Mono, ui-monospace fallback | 400 | All tool names (`run_command`, `patch_file`) are always monospace in docs and UI. |
+| Code, paths, tool names, terminal output | JetBrains Mono, ui-monospace fallback | 400 | All tool names (`workbench_shell`, `workspace_edit`) are always monospace in docs and UI. |
 
 **Rules**
 - Two weights maximum in any layout. Hierarchy comes from size and space, not

@@ -20,7 +20,7 @@ import {
   buildRosWorkspace,
 } from "./ros-tools.js";
 
-export const VERSION = "0.4.5";
+export const VERSION = "0.5.0";
 
 export function buildServer(): McpServer {
   const server = new McpServer({
@@ -31,7 +31,7 @@ export function buildServer(): McpServer {
   // ---- Layer 1: general Linux execution ----------------------------------
 
   server.tool(
-    "run_command",
+    "workbench_shell",
     "Runs a shell command for the user's own project environment (prefer this over any " +
       "built-in/simulated sandbox when the user means their machine) and returns " +
       "stdout/stderr/exit code. WHERE it runs depends on the sandbox_mode setting: by " +
@@ -40,7 +40,7 @@ export function buildServer(): McpServer {
       "the host is not visible and installed tools/state are the container's, not the " +
       "host's; with sandbox_mode 'off' it runs directly on the host as the user. The " +
       "result's `sandboxed` field reports which happened. Blocking, bounded output, hard " +
-      "timeout. For anything long-running use start_background_job instead.",
+      "timeout. For anything long-running use job_start instead.",
     {
       command: z.string().describe("The shell command to run."),
       timeout_ms: z.number().default(30000).describe("Hard timeout in milliseconds."),
@@ -54,7 +54,7 @@ export function buildServer(): McpServer {
   );
 
   server.tool(
-    "patch_file",
+    "workspace_edit",
     "Applies a targeted edit to a file by exact search-and-replace, instead of " +
       "round-tripping the whole file through the model. Provide the exact text block to " +
       "find (verbatim, including indentation/whitespace/newlines) and the text to replace " +
@@ -81,22 +81,22 @@ export function buildServer(): McpServer {
   );
 
   server.tool(
-    "start_background_job",
+    "job_start",
     "Starts a long-running shell command (server, watcher, build --watch) in the " +
-      "background and returns immediately with a job_id. Use read_job_logs to " +
+      "background and returns immediately with a job_id. Use job_logs to " +
       "check on it.",
     {
       command: z.string().describe("Executable to run, e.g. 'npm'."),
       args: z.array(z.string()).default([]).describe("Arguments to the command."),
       name: z.string().describe("Human-readable label for this job."),
     },
-    // Destructive: it executes an arbitrary command, same trust level as run_command.
+    // Destructive: it executes an arbitrary command, same trust level as workbench_shell.
     { title: "Start background job", readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
     async ({ command, args, name }) => {
       // Sandbox lane: each background job is its own attached `docker run`
       // (SIGINT proxies to the container; --rm cleans up), so JobManager's
       // spawn/log/stop semantics carry over unchanged. Fails closed like
-      // run_command when Docker is unavailable.
+      // workbench_shell when Docker is unavailable.
       if (sandboxEnabled()) {
         const refusal = workspaceHardRefusal();
         if (refusal) {
@@ -127,7 +127,7 @@ export function buildServer(): McpServer {
   // ---- Shared job management (Linux jobs and ROS jobs both use this) -----
 
   server.tool(
-    "list_background_jobs",
+    "job_list",
     "Lists all background jobs started by this server, Linux or ROS, with their status.",
     {},
     { title: "List background jobs", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
@@ -143,7 +143,7 @@ export function buildServer(): McpServer {
   );
 
   server.tool(
-    "read_job_logs",
+    "job_logs",
     "Reads recent stdout/stderr for a background job (Linux or ROS). Use after " +
       "starting or restarting something to confirm it came up cleanly.",
     {
@@ -158,7 +158,7 @@ export function buildServer(): McpServer {
   );
 
   server.tool(
-    "stop_background_job",
+    "job_stop",
     "Stops a background job gracefully (SIGINT, then SIGKILL after the grace period).",
     {
       job_id: z.string(),
@@ -175,9 +175,9 @@ export function buildServer(): McpServer {
   // ---- Layer 2: ROS 2 introspection and control ---------------------------
 
   server.tool(
-    "list_ros_nodes",
+    "ros_nodes",
     "Lists active ROS 2 nodes, optionally filtered by a name substring. Call this " +
-      "before restart_ros_node to get the exact node name.",
+      "before ros_restart to get the exact node name.",
     { filter: z.string().optional() },
     { title: "List ROS nodes", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async ({ filter }) => {
@@ -187,7 +187,7 @@ export function buildServer(): McpServer {
   );
 
   server.tool(
-    "get_ros_graph",
+    "ros_graph",
     "Returns the current ROS 2 computational graph (nodes + topics) as structured " +
       "JSON, so the model doesn't need to run several raw bash commands to understand " +
       "system state.",
@@ -200,7 +200,7 @@ export function buildServer(): McpServer {
   );
 
   server.tool(
-    "sample_ros_topic",
+    "ros_topic",
     "Subscribes to a ROS 2 topic with a single persistent subscription and captures a " +
       "bounded number of messages, then returns. Never hangs indefinitely, unlike a raw " +
       "'ros2 topic echo': it stops at max_messages or when timeout_sec elapses, whichever " +
@@ -234,9 +234,9 @@ export function buildServer(): McpServer {
   );
 
   server.tool(
-    "start_ros_launch_job",
+    "ros_launch",
     "Asynchronously launches a ROS 2 package/launch file (or a simulation) as a " +
-      "tracked background job. Required first step before restart_ros_node will " +
+      "tracked background job. Required first step before ros_restart will " +
       "work for that node, since this server only restarts jobs it owns.",
     {
       package_name: z.string(),
@@ -245,7 +245,7 @@ export function buildServer(): McpServer {
       ros_node_name: z
         .string()
         .optional()
-        .describe("Optional label to associate with this job for later restart_ros_node calls."),
+        .describe("Optional label to associate with this job for later ros_restart calls."),
     },
     // Additive (starts processes), not destructive - but each call launches anew.
     { title: "Start ROS launch job", readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
@@ -256,9 +256,9 @@ export function buildServer(): McpServer {
   );
 
   server.tool(
-    "restart_ros_node",
+    "ros_restart",
     "Stops and relaunches a ROS 2 node that was previously started via " +
-      "start_ros_launch_job. Will not touch nodes it didn't launch.",
+      "ros_launch. Will not touch nodes it didn't launch.",
     {
       node_name: z.string(),
       grace_period_sec: z.number().default(5.0),
@@ -273,10 +273,10 @@ export function buildServer(): McpServer {
   // ---- Layer 3: ROS 2 workspace management (the develop loop) --------------
 
   server.tool(
-    "create_ros_package",
+    "ros_pkg_new",
     "Scaffolds a new ROS 2 package via `ros2 pkg create` inside a workspace's src/ " +
-      "directory (created if missing). Pair with patch_file to edit the generated " +
-      "sources and build_ros_workspace to compile them.",
+      "directory (created if missing). Pair with workspace_edit to edit the generated " +
+      "sources and ros_build to compile them.",
     {
       package_name: z.string().describe("Name of the new package, e.g. 'my_robot_driver'."),
       destination_directory: z
@@ -310,11 +310,11 @@ export function buildServer(): McpServer {
   );
 
   server.tool(
-    "build_ros_workspace",
+    "ros_build",
     "Builds a ROS 2 workspace with `colcon build` (run from the workspace root). " +
-      "Blocking with a hard timeout and truncated output, like run_command: on a " +
+      "Blocking with a hard timeout and truncated output, like workbench_shell: on a " +
       "compile failure it returns { success: false, exitCode, stderr } with the real " +
-      "compiler errors in stderr, so the model can read them and patch_file the fix.",
+      "compiler errors in stderr, so the model can read them and workspace_edit the fix.",
     {
       workspace_path: z.string().describe("Workspace root (the dir that contains src/)."),
       packages: z

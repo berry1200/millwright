@@ -93,17 +93,17 @@ wrapper because WSL paths are meaningless to Windows Node.
 ```
 User: "the node won't build, fix it"
   │
-  ├─► build_ros_workspace  ──► colcon build ──► exit 2
+  ├─► ros_build  ──► colcon build ──► exit 2
   │                                            stderr: real gcc error
   ├─► (model reads the actual compiler error)
   │
-  ├─► patch_file           ──► exact search/replace on disk
+  ├─► workspace_edit           ──► exact search/replace on disk
   │
-  ├─► build_ros_workspace  ──► colcon build ──► exit 0
+  ├─► ros_build  ──► colcon build ──► exit 0
   │
-  ├─► restart_ros_node     ──► stop + relaunch owned job
+  ├─► ros_restart     ──► stop + relaunch owned job
   │
-  └─► sample_ros_topic     ──► confirm it's publishing again
+  └─► ros_topic     ──► confirm it's publishing again
 ```
 
 No human interpretation at any step. This loop is validated end-to-end.
@@ -111,18 +111,18 @@ No human interpretation at any step. This loop is validated end-to-end.
 ### 3.2 Long-running process handling
 
 ```
-start_ros_launch_job ──► spawn ──► register in JobManager ──► return job_id
+ros_launch ──► spawn ──► register in JobManager ──► return job_id
                                           │
                                           ├── stdout/stderr → ring buffer (2000 lines)
                                           └── exit handler → status update
 
-read_job_logs(job_id) ──► tail N lines from the buffer
-stop_background_job   ──► SIGINT ──► (grace period) ──► SIGKILL
+job_logs(job_id) ──► tail N lines from the buffer
+job_stop   ──► SIGINT ──► (grace period) ──► SIGKILL
 ```
 
 ### 3.3 Bounded topic sampling
 
-`sample_ros_topic` runs **one** persistent `ros2 topic echo` subscription,
+`ros_topic` runs **one** persistent `ros2 topic echo` subscription,
 buffers stdout, and peels off complete `---`-terminated YAML documents as they
 stream. A partial document stays in the buffer until its terminator arrives. The
 call returns when N messages are captured or the overall timeout elapses.
@@ -159,9 +159,9 @@ millwright/
 │   ├── index.ts               # Entrypoint: stdio transport wiring
 │   ├── server.ts              # Tool registration, schemas, annotations
 │   ├── job-manager.ts         # Background process registry
-│   ├── shell-tools.ts         # run_command, blocklist, truncateOutput
+│   ├── shell-tools.ts         # workbench_shell, blocklist, truncateOutput
 │   ├── ros-tools.ts           # All ROS 2 + workspace tools, rosInvocation()
-│   └── file-tools.ts          # patch_file
+│   └── file-tools.ts          # workspace_edit
 │
 ├── dist/                      # Compiled output (gitignored)
 │
@@ -189,7 +189,7 @@ server from a ROS-sourced shell**:
 |---|---|
 | `ros_setup_script` | Path to `setup.bash`. A `rosInvocation()` wrapper sources it before every `ros2`/`colcon` call. Without this, every ROS tool silently fails on a real install. |
 | `wsl_distro` | On Windows, ROS commands route through `wsl.exe` into this distro. |
-| `shell_bin` | Shell binary for `run_command`. Defaults to `bash`. |
+| `shell_bin` | Shell binary for `workbench_shell`. Defaults to `bash`. |
 
 This was a genuine architectural finding: it worked perfectly from a developer's
 terminal and would have failed for every real installer.
@@ -205,12 +205,12 @@ Defense layers, weakest to strongest:
    `dd of=/dev/`, fork bombs. Explicitly documented as bypassable. **Must not be
    grown as a substitute for sandboxing.**
 2. **Output truncation** — prevents a runaway log from destroying the model's context.
-3. **Ownership boundary** — `restart_ros_node` and `stop_background_job` only act
+3. **Ownership boundary** — `ros_restart` and `job_stop` only act
    on processes Millwright spawned.
-4. **Refusal semantics** — `patch_file` refuses ambiguous or zero matches and
+4. **Refusal semantics** — `workspace_edit` refuses ambiguous or zero matches and
    leaves files byte-identical.
 5. **Tool annotations** — `destructiveHint` set accurately (and conservatively:
-   `start_background_job` is marked destructive because it executes arbitrary
+   `job_start` is marked destructive because it executes arbitrary
    commands).
 6. **Container sandbox** *(approved, not implemented)* — the real defense. Once
    active, `--pids-limit` retires the blocklist's fork-bomb rule.

@@ -17,9 +17,9 @@ has already caught four bugs that code review missed entirely:
 
 | Bug | How review missed it |
 |---|---|
-| `sample_ros_topic` passed `messageType` as a positional to `ros2 topic echo`, failing hard on any stale type | Looked correct; the type string *was* correct in older distros |
+| `ros_topic` passed `messageType` as a positional to `ros2 topic echo`, failing hard on any stale type | Looked correct; the type string *was* correct in older distros |
 | `include_hidden ? ["topic","list"] : ["topic","list"]` — a no-op ternary | Reads as intentional at a glance |
-| `list_ros_nodes` returned duplicates from discovery races | Only visible with a live graph |
+| `ros_nodes` returned duplicates from discovery races | Only visible with a live graph |
 | Kill contract resolved the promise *before* sending SIGINT | Only visible with per-case orphan checks |
 
 **Corollaries:**
@@ -88,10 +88,10 @@ Rules:
   say so in the description. Do not leave required-but-unused parameters.
 - **Annotations must be accurate, not permissive.** MCP defaults are permissive —
   absent `destructiveHint` reads as true — so state the negatives explicitly.
-  When in doubt, mark destructive: `start_background_job` is destructive because
+  When in doubt, mark destructive: `job_start` is destructive because
   it executes arbitrary commands.
 - **Descriptions are prompts.** They are the only thing the model sees when
-  choosing a tool. Generic names like `run_command` can lose to a client's
+  choosing a tool. Generic names like `workbench_shell` can lose to a client's
   built-in sandbox; descriptions should be specific about when the tool applies.
 - **Own what you touch.** Never act on processes or files the server didn't
   create or wasn't explicitly pointed at.

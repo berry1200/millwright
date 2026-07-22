@@ -14,14 +14,14 @@ it's named for, it installs, maintains, and fixes your machines' software.
 
 ## Status
 
-**v0.4** — 13 tools over stdio, installable as an MCP Bundle (`.mcpb`),
+**v0.5** — 13 tools over stdio, installable as an MCP Bundle (`.mcpb`),
 Docker-sandboxed by default. Validated live (2026-07) on **Ubuntu 26.04**
 (WSL2):
 
-- **ROS 2 Lyrical Luth** — every ROS tool, `patch_file`, a full MCP JSON-RPC
+- **ROS 2 Lyrical Luth** — every ROS tool, `workspace_edit`, a full MCP JSON-RPC
   round-trip, and the create → edit → build develop loop, all against a live
   turtlesim, not mocked.
-- **`build_ros_workspace` also validated on Jazzy and Humble** — the build
+- **`ros_build` also validated on Jazzy and Humble** — the build
   runs in the matching `ros:<distro>-ros-base` container, so it is genuinely
   distro-portable; verified building a package in `ros:jazzy-ros-base` and
   `ros:humble-ros-base`.
@@ -31,9 +31,9 @@ Docker-sandboxed by default. Validated live (2026-07) on **Ubuntu 26.04**
 ### Coverage boundaries (honest)
 
 - **The ROS introspection/launch tools are validated against Lyrical only, and
-  that is an accepted limit, not a gap we're closing.** `list_ros_nodes`,
-  `get_ros_graph`, `sample_ros_topic`, `start_ros_launch_job` and
-  `restart_ros_node` run on the *host*, because they depend on DDS discovery —
+  that is an accepted limit, not a gap we're closing.** `ros_nodes`,
+  `ros_graph`, `ros_topic`, `ros_launch` and
+  `ros_restart` run on the *host*, because they depend on DDS discovery —
   which does not survive containerisation without `--network=host`, and that
   flag doesn't work meaningfully on Docker Desktop's VM (the primary Windows
   setup) and would discard most of the isolation the sandbox exists to provide.
@@ -43,7 +43,7 @@ Docker-sandboxed by default. Validated live (2026-07) on **Ubuntu 26.04**
   expected to work — but they are **untested**, and we say so rather than imply
   coverage we don't have. Real coverage would come from a self-hosted CI runner
   with another distro installed (the `ros` job is stubbed in `ci.yml`).
-- `create_ros_package` also runs on the host and emits a generic ament scaffold,
+- `ros_pkg_new` also runs on the host and emits a generic ament scaffold,
   so it is not distro-varied either.
 - The Windows host-build carve-out has not been tested on Jazzy/Humble.
 - macOS is out of scope (no realistic upstream ROS 2 support).
@@ -54,31 +54,31 @@ The ROS and file tools together give the model a tight edit/build/fix cycle it
 can drive on its own:
 
 ```
-create_ros_package   ->  scaffold a package
-patch_file           ->  edit the source
-build_ros_workspace  ->  colcon build
+ros_pkg_new   ->  scaffold a package
+workspace_edit           ->  edit the source
+ros_build  ->  colcon build
    (on failure, the real compiler errors come back in stderr)
-patch_file           ->  fix
-build_ros_workspace  ->  rebuild, green
+workspace_edit           ->  fix
+ros_build  ->  rebuild, green
 ```
 
 ## Tools
 
 **Linux execution**
-- `run_command` — bounded shell exec (blocklist check, hard timeout, truncated output)
-- `patch_file` — exact search/replace file editing; refuses a no-match or ambiguous
+- `workbench_shell` — bounded shell exec (blocklist check, hard timeout, truncated output)
+- `workspace_edit` — exact search/replace file editing; refuses a no-match or ambiguous
   match (unless `replace_all`) and leaves the file untouched on refusal
 
 **Background jobs** (shared by Linux and ROS)
-- `start_background_job`, `list_background_jobs`, `read_job_logs`, `stop_background_job`
+- `job_start`, `job_list`, `job_logs`, `job_stop`
 
 **ROS 2 introspection & control** (needs `ros2` on PATH)
-- `list_ros_nodes`, `get_ros_graph`, `sample_ros_topic`
-- `start_ros_launch_job`, `restart_ros_node`
+- `ros_nodes`, `ros_graph`, `ros_topic`
+- `ros_launch`, `ros_restart`
 
 **ROS 2 workspace** (needs `colcon` from `ros-dev-tools`)
-- `create_ros_package` — wraps `ros2 pkg create`
-- `build_ros_workspace` — wraps `colcon build`; on failure returns
+- `ros_pkg_new` — wraps `ros2 pkg create`
+- `ros_build` — wraps `colcon build`; on failure returns
   `{ success: false, exitCode, stderr }` with the real compiler errors
 
 All ROS tools degrade gracefully: if `ros2`/`colcon` isn't found they return a
@@ -101,7 +101,7 @@ so `ros2` and `colcon` are on PATH and node discovery works.
 
 **Prerequisites: Node 20+ and Docker.** Docker is a hard prerequisite of the
 default configuration — sandboxing is on by default and **fails closed**: with
-Docker missing or stopped, `run_command`, background jobs, and (on Linux)
+Docker missing or stopped, `workbench_shell`, background jobs, and (on Linux)
 builds refuse to run and return instructions instead. On Windows that means
 Docker Desktop with WSL integration enabled for your distro. Seeing "Docker is
 not reachable" on a fresh install is the sandbox working as designed, not a
@@ -130,7 +130,7 @@ default), **Workspace folder is effectively required**; the rest are optional:
   shell. On Windows, give the path *inside* your WSL distro — ROS commands
   are routed through WSL automatically.
 - **WSL distro** (Windows only) — where ROS lives; default `Ubuntu`.
-- **Shell for run_command** — default `bash`; on Windows point it at Git
+- **Shell for workbench_shell** — default `bash`; on Windows point it at Git
   Bash if `bash` isn't on PATH.
 - **Sandbox mode** — `docker` (default: commands run in containers, edits
   confined to the workspace) or `off` (everything runs directly on your
@@ -182,8 +182,8 @@ path fails host-side with a generic "path not found" before the guard runs.
 
 ### First prompts: name the extension
 
-Millwright's tool names are deliberately generic (`run_command`,
-`patch_file`), and some Claude surfaces have built-in tools with similar
+Millwright's tool names are deliberately generic (`workbench_shell`,
+`workspace_edit`), and some Claude surfaces have built-in tools with similar
 jobs — so a bare "run uname -a" may get routed to a built-in sandbox
 instead of your real machine (observed on a real install: the built-in
 answered with its own container's kernel). Until the model has used
@@ -215,11 +215,11 @@ This server runs entirely on your machine and makes **no network calls of its
 own** — no telemetry, no analytics, no external services, no phoning home.
 Concretely, here is everything it touches:
 
-- **Filesystem**: `patch_file` reads and writes files at paths the model asks
+- **Filesystem**: `workspace_edit` reads and writes files at paths the model asks
   for. With sandboxing on (the default), edits are restricted to your
   configured workspace folder; with `sandbox_mode: off`, access is limited
   only by your OS user's permissions.
-- **Process execution**: with sandboxing on, `run_command` and background
+- **Process execution**: with sandboxing on, `workbench_shell` and background
   jobs execute inside Docker containers (resource-limited, workspace-mounted);
   ROS introspection commands (`ros2`) run locally as your user, and on Linux
   `colcon` builds run in a network-isolated container. With `sandbox_mode:
@@ -243,8 +243,8 @@ like anything else you'd paste into chat.
 
 - **Simulation-first.** Real hardware is never driven directly from a prompt;
   ROS work happens in the simulation lane, hardware sits behind an approval gate.
-- **`restart_ros_node` only restarts nodes this server launched** (via
-  `start_ros_launch_job`). It refuses to kill processes it doesn't own — a
+- **`ros_restart` only restarts nodes this server launched** (via
+  `ros_launch`). It refuses to kill processes it doesn't own — a
   deliberate boundary, not a limitation.
 - **Bounded output everywhere**, so a runaway log or build can't blow the model's context.
 - **Docker sandbox, on by default.** Shell commands and background jobs run in
@@ -269,7 +269,7 @@ ROS/colcon rather than mocks:
 ```bash
 npm run build
 node harness.mjs            # ROS tools vs. a live turtlesim
-node patch-harness.mjs      # patch_file on real files
+node patch-harness.mjs      # workspace_edit on real files
 node workspace-harness.mjs  # create -> patch -> build develop loop with colcon
 bash mcp-roundtrip.sh       # raw JSON-RPC over stdio (spawns dist/index.js)
 bash sandbox-harness.sh     # Docker sandbox: workbench, limits, network, builds

@@ -35,7 +35,7 @@ logs.
 The loop closes if the model can execute and observe. Given `build →
 read real stderr → patch → rebuild`, a model can iterate without the human in the
 middle. This is already proven in the codebase: a deliberately broken C++ node
-produced a genuine gcc error through `build_ros_workspace`, which `patch_file`
+produced a genuine gcc error through `ros_build`, which `workspace_edit`
 then fixed, with the rebuild passing — no human interpretation at any step.
 
 ---
@@ -78,7 +78,7 @@ is **blocked until sandboxing ships** and is explicitly not a v0.x target.
    no Docker), tools return a clear, actionable message — never a silent
    fallback to a less-safe path, never a raw ENOENT.
 4. **Own what you touch.** Tools do not act on processes or files they did not
-   create or were not explicitly pointed at. `restart_ros_node` refuses to
+   create or were not explicitly pointed at. `ros_restart` refuses to
    restart nodes Millwright didn't launch.
 5. **Simulation before hardware.** Real actuators sit behind simulation, always.
 6. **Honest documentation.** Docs record what was actually tested, what is merely
@@ -94,34 +94,34 @@ is **blocked until sandboxing ships** and is explicitly not a v0.x target.
 
 | Tool | Purpose |
 |---|---|
-| `run_command` | Bounded shell execution. Blocklist check, output truncation (~200 lines head+tail), hard timeout. |
-| `start_background_job` | Spawns a long-running process, returns a `job_id` immediately. |
-| `list_background_jobs` | Lists all tracked jobs with status. |
-| `read_job_logs` | Tails stdout/stderr for a job. |
-| `stop_background_job` | SIGINT, then SIGKILL after a grace period. |
+| `workbench_shell` | Bounded shell execution. Blocklist check, output truncation (~200 lines head+tail), hard timeout. |
+| `job_start` | Spawns a long-running process, returns a `job_id` immediately. |
+| `job_list` | Lists all tracked jobs with status. |
+| `job_logs` | Tails stdout/stderr for a job. |
+| `job_stop` | SIGINT, then SIGKILL after a grace period. |
 
 **File editing**
 
 | Tool | Purpose |
 |---|---|
-| `patch_file` | Exact search/replace. Refuses zero-match and ambiguous multi-match (unless `replace_all`), leaves the file byte-identical on refusal, inserts replacement text literally with no regex expansion. |
+| `workspace_edit` | Exact search/replace. Refuses zero-match and ambiguous multi-match (unless `replace_all`), leaves the file byte-identical on refusal, inserts replacement text literally with no regex expansion. |
 
 **ROS 2 introspection and control**
 
 | Tool | Purpose |
 |---|---|
-| `list_ros_nodes` | Active nodes, de-duplicated, optional filter. |
-| `get_ros_graph` | Nodes + topics as structured JSON, with working hidden-topic support. |
-| `sample_ros_topic` | Bounded topic capture via one persistent subscription. Never hangs. Type is auto-resolved. |
-| `start_ros_launch_job` | Launches a package/launch file as a tracked background job. |
-| `restart_ros_node` | Restarts a node Millwright launched. Refuses unowned processes. |
+| `ros_nodes` | Active nodes, de-duplicated, optional filter. |
+| `ros_graph` | Nodes + topics as structured JSON, with working hidden-topic support. |
+| `ros_topic` | Bounded topic capture via one persistent subscription. Never hangs. Type is auto-resolved. |
+| `ros_launch` | Launches a package/launch file as a tracked background job. |
+| `ros_restart` | Restarts a node Millwright launched. Refuses unowned processes. |
 
 **Workspace management**
 
 | Tool | Purpose |
 |---|---|
-| `create_ros_package` | Wraps `ros2 pkg create`. |
-| `build_ros_workspace` | Wraps `colcon build`, returning real compiler errors in `stderr` on failure. |
+| `ros_pkg_new` | Wraps `ros2 pkg create`. |
+| `ros_build` | Wraps `colcon build`, returning real compiler errors in `stderr` on failure. |
 
 ### 4.2 Packaging
 
@@ -135,14 +135,14 @@ is **blocked until sandboxing ships** and is explicitly not a v0.x target.
 
 Full spec committed at `docs/sandboxing.md`. Summary:
 
-- Linux lane (`run_command`, background jobs) runs inside a long-lived per-session
+- Linux lane (`workbench_shell`, background jobs) runs inside a long-lived per-session
   workbench container via `docker exec`, on plain `ubuntu:24.04`.
 - Workspace bind-mounted **at the same absolute path** inside and outside, so
   paths never change meaning for the model.
 - Build lane runs in an official OSRF `ros:<distro>` container with
   `--network=none` — the most locked-down component, since builds need ROS but
   not DDS discovery.
-- `patch_file` stays host-side with a path allowlist equal to the mount.
+- `workspace_edit` stays host-side with a path allowlist equal to the mount.
 - ROS introspection lane stays host-side in v1 (DDS discovery does not survive
   Docker Desktop's VM on Windows).
 - `--memory` and `--pids-limit` set. No Docker → tools fail closed.
@@ -194,6 +194,6 @@ Full spec committed at `docs/sandboxing.md`. Summary:
 | Windows without WSL | Medium | ROS tools degrade politely; shell tools now do too, but the path is untested. |
 | No CI tests | Medium | Validation harnesses are manual scripts. |
 | `.mcpb` double-click does not install on Windows | Medium | No file association; Windows shows an "open with" dialog. Settings → Extensions → Advanced settings is the working route. |
-| Generic tool names may lose to built-ins | Medium | `run_command` can be shadowed by a client's own sandbox. Users may need to name Millwright explicitly at first. |
-| Job ownership does not survive restarts | Low | `restart_ros_node` loses track of jobs across Claude Desktop session restarts. |
+| Generic tool names may lose to built-ins | Medium | `workbench_shell` can be shadowed by a client's own sandbox. Users may need to name Millwright explicitly at first. |
+| Job ownership does not survive restarts | Low | `ros_restart` loses track of jobs across Claude Desktop session restarts. |
 | Icon is a placeholder | Low | Brand assets outstanding. |

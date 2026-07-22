@@ -13,7 +13,7 @@ const execFileAsync = promisify(execFile);
 // WORKBENCH_NETWORK: "all" (default) | "none" - the toggle ships ahead of a
 // deny-by-default future so the config surface doesn't change later.
 // WORKSPACE_DIR: bind-mounted into containers at the same absolute path and
-// used as patch_file's allowlist root - one mental model, one folder.
+// used as workspace_edit's allowlist root - one mental model, one folder.
 const SANDBOX_MODE = (process.env.SANDBOX_MODE || "docker").toLowerCase();
 const WORKBENCH_NETWORK = process.env.WORKBENCH_NETWORK === "none" ? "none" : "all";
 const RAW_WORKSPACE_DIR = process.env.WORKSPACE_DIR || undefined;
@@ -74,8 +74,8 @@ export function sandboxStartupLine(version: string): string {
  * Normalize a model-supplied path to a host-addressable form BEFORE the
  * workspace gate runs. Fixes two structural failures, both of which otherwise
  * defeat the gate on Windows by failing to resolve *before* it is reached:
- *   - run_command runs in-container and prints POSIX paths, so the model hands
- *     patch_file / build a POSIX path next; host-side on Windows `/home/x` is
+ *   - workbench_shell runs in-container and prints POSIX paths, so the model hands
+ *     workspace_edit / build a POSIX path next; host-side on Windows `/home/x` is
  *     read as `C:\home\x` and dies "not found" before the gate.
  *   - relative paths resolve against the server's cwd (the extension dir on
  *     Windows), not the workspace the model is reasoning about.
@@ -304,7 +304,7 @@ export function forceRemoveContainer(name: string): void {
   }
 }
 
-// ---- patch_file / create_ros_package allowlist -----------------------------
+// ---- workspace_edit / ros_pkg_new allowlist -----------------------------
 
 export const WORKSPACE_REQUIRED_MSG =
   "Sandboxing is on, so file edits are restricted to the configured workspace - but no " +
@@ -333,7 +333,7 @@ export async function isInsideWorkspace(
     real = await realpath(candidate);
   } catch (err: any) {
     if (err.code === "ENOENT") {
-      // Target doesn't exist yet (e.g. create_ros_package dest): containment
+      // Target doesn't exist yet (e.g. ros_pkg_new dest): containment
       // is judged on the nearest existing ancestor instead.
       try {
         real = path.join(await realpath(path.dirname(candidate)), path.basename(candidate));

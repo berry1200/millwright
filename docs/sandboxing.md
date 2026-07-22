@@ -9,7 +9,7 @@ The blocklist in `shell-tools.ts` is a stopgap; this is the real defense.
 
 ## Threat model (what we're actually defending against)
 
-An LLM drives `run_command` / `start_background_job` with arbitrary shell.
+An LLM drives `workbench_shell` / `job_start` with arbitrary shell.
 The threat is not a malicious user — it's a *confused or prompt-injected
 model* wrecking the host: deleting files outside the project, mutating
 system state, exfiltrating credentials it can read. The defense goal is
@@ -23,13 +23,13 @@ kernel-level container escapes.
 ```
 HOST (server process, Node)
 ├── MCP stdio endpoint, JobManager, zod schemas      — outside (always)
-├── patch_file                                        — outside, but SCOPED (see below)
+├── workspace_edit                                        — outside, but SCOPED (see below)
 ├── ROS introspection/control: list/graph/sample/
-│   launch/restart, create_ros_package               — outside (DDS lives on the host)
-├── build_ros_workspace                               — INSIDE a ROS container on Linux;
+│   launch/restart, ros_pkg_new               — outside (DDS lives on the host)
+├── ros_build                               — INSIDE a ROS container on Linux;
 │                                                       host-side on Windows (PROMINENT
 │                                                       limitation — see ROS section)
-└── Linux lane: run_command, start_background_job     — INSIDE the workbench container
+└── Linux lane: workbench_shell, job_start     — INSIDE the workbench container
 ```
 
 - **The server itself stays on the host.** Containerizing the whole server
@@ -48,7 +48,7 @@ HOST (server process, Node)
   JobManager semantics (job_id, logs, SIGINT) carry over unchanged. One
   container per session (not per command) keeps apt installs and build
   caches usable *within* a session, at ~50–150 ms exec overhead per call.
-- **patch_file stays host-side but gains a path allowlist**: when the
+- **workspace_edit stays host-side but gains a path allowlist**: when the
   sandbox is enabled, writes are restricted to the configured workspace
   root (realpath-checked, symlink-resolved). This gives filesystem scoping
   without containerizing the editor — same files, same speed.
@@ -56,7 +56,7 @@ HOST (server process, Node)
 ## How ROS tools reach ROS (which lives on the host)
 
 **Introspection/control (list, graph, sample, launch, restart) and
-`create_ros_package` stay on the host in v1.** Reasons:
+`ros_pkg_new` stay on the host in v1.** Reasons:
 
 - ROS 2 discovery is host-scoped (DDS multicast / shared memory; zenoh
   router ports). A containerized `ros2 node list` sees nothing unless the
@@ -65,10 +65,10 @@ HOST (server process, Node)
   on Windows, which is exactly our documented dev environment.
 - These commands are structured (`ros2 <verb>`), not arbitrary shell, and
   the launch/restart tools only touch processes the server itself started
-  (existing boundary). `create_ros_package` writes scaffolding inside the
-  workspace, which the patch_file allowlist already scopes.
+  (existing boundary). `ros_pkg_new` writes scaffolding inside the
+  workspace, which the workspace_edit allowlist already scopes.
 
-**`build_ros_workspace` is containerized in v1 on Linux hosts.** Decided
+**`ros_build` is containerized in v1 on Linux hosts.** Decided
 2026-07-18: a hostile `CMakeLists.txt` executes arbitrary code at
 configure time, and "clone this repo and build it" is a completely normal
 instruction for this tool — it's the most realistic attack path, so the
@@ -86,12 +86,12 @@ On Windows the server runs Windows-side and reaches ROS through the
 `wsl.exe` bridge; layering Docker on top means Docker Desktop socket +
 cross-distro mount plumbing through that same bridge, which is exactly
 the fragile path this design avoids in v1. Consequence, stated plainly:
-**on Windows, `build_ros_workspace` executes CMake/colcon on the host
+**on Windows, `ros_build` executes CMake/colcon on the host
 (inside WSL) with NO sandbox — a hostile CMakeLists.txt runs with your
 user's privileges.** This must be:
 
 1. **A runtime warning, not a doc footnote**: on Windows (or whenever the
-   build runs unsandboxed), the `build_ros_workspace` result MUST include
+   build runs unsandboxed), the `ros_build` result MUST include
    `sandboxed: false` and a `warning` string saying arbitrary code from
    the workspace's build files ran on the host — every call, not just the
    first.
@@ -105,8 +105,8 @@ user's privileges.** This must be:
 New `user_config` entry `workspace_dir` (type `directory`). Mounted into
 the workbench container **at the same absolute path** as on the host
 (`-v /home/me/ws:/home/me/ws`), so compiler errors, colcon paths, and
-`patch_file` targets are identical inside and outside — no path-mapping
-layer for the model to get confused by. `patch_file`'s allowlist and the
+`workspace_edit` targets are identical inside and outside — no path-mapping
+layer for the model to get confused by. `workspace_edit`'s allowlist and the
 container mount are the *same* directory, one mental model: "the sandbox
 is this folder."
 
@@ -166,7 +166,7 @@ via MCPB, `off` default for manual configs (env `SANDBOX_MODE`).
   commands, owned-process boundary — but host nonetheless).
 - **On Windows, builds run unsandboxed on the host** (see the prominent
   limitation above — mitigated only by the runtime warning).
-- `patch_file` can still write anything *inside* the workspace, including
+- `workspace_edit` can still write anything *inside* the workspace, including
   `.bashrc`-style files if the workspace is a home directory — the docs
   should tell users not to mount `~`.
 - Secrets readable inside the mounted workspace are readable, period.

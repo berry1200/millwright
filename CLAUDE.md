@@ -34,9 +34,14 @@ History and rationale, so this doesn't get reopened:
   ("an MCP server for Linux and ROS 2 development", "works with ROS 2"),
   never as part of the product name. Style it "ROS 2" — all caps, space
   before the version number, never plural or possessive.
-- The MCP tool names (`run_command`, `list_ros_nodes`, ...) were
-  deliberately NOT renamed — they're API surface; renaming would break
-  existing configs for zero benefit.
+- The MCP tool names were **renamed in 0.5.0** to a semantic scheme
+  (`workbench_shell`, `workspace_edit`, `job_*`, `ros_*`) that makes ownership
+  and the sandbox boundary unambiguous. Done deliberately while the author was
+  still the only user — tool names are API, so after a handoff this is a
+  breaking change. Full old→new mapping in `docs/phases.md` §5.0. (This reverses
+  the earlier "deliberately NOT renamed" stance, which only held while the
+  generic names hadn't yet lost a routing call to a client's built-in — the old
+  generic shell tool had.)
 - **Collision verification + conscious decision (2026-07-18/19).** The
   earlier "essentially clean" claim was WRONG; verified across npm, GitHub,
   and web:
@@ -113,17 +118,17 @@ We researched the space before writing code. Findings:
 
 - **Async job pattern for anything long-running.** MCP tool calls are
   request/response; a raw `ros2 launch` or Gazebo sim would hang a call
-  forever. Solution: `start_background_job` / `start_ros_launch_job`
+  forever. Solution: `job_start` / `ros_launch`
   spawn, detach into a `JobManager` registry, return a `job_id`
-  immediately. LLM polls `read_job_logs` / `list_background_jobs`.
-- **`restart_ros_node` only restarts nodes this server launched itself**
+  immediately. LLM polls `job_logs` / `job_list`.
+- **`ros_restart` only restarts nodes this server launched itself**
   (tracked via `job.rosNodeName`). It refuses to touch processes it
   doesn't own. This is a deliberate safety boundary, not a limitation to
   "fix" — don't make this tool killable-by-name against arbitrary
   system processes.
-- **Bounded output everywhere.** `run_command` truncates to ~200 lines
+- **Bounded output everywhere.** `workbench_shell` truncates to ~200 lines
   (head + tail) so a runaway build log doesn't blow the LLM's context.
-  `sample_ros_topic` takes a `max_messages` + `timeout_sec`, never a raw
+  `ros_topic` takes a `max_messages` + `timeout_sec`, never a raw
   unbounded `topic echo`.
 - **Graceful degradation when ROS isn't installed.** All ROS tools call
   `isRos2Available()` first and return a clear, actionable message
@@ -158,44 +163,44 @@ src/
   index.ts        entrypoint, connects server to stdio transport
   server.ts       registers all 13 tools with zod schemas
   job-manager.ts  background process registry (Linux + ROS jobs share this)
-  shell-tools.ts  run_command + blocklist + truncation (exports truncateOutput);
+  shell-tools.ts  workbench_shell + blocklist + truncation (exports truncateOutput);
                   shell binary configurable via SHELL_BIN env
-  file-tools.ts   patch_file (exact search/replace file editing)
-  ros-tools.ts    rosInvocation() env wrapper + list_ros_nodes, get_ros_graph,
-                  sample_ros_topic, start_ros_launch_job, restart_ros_node,
-                  create_ros_package, build_ros_workspace
+  file-tools.ts   workspace_edit (exact search/replace file editing)
+  ros-tools.ts    rosInvocation() env wrapper + ros_nodes, ros_graph,
+                  ros_topic, ros_launch, ros_restart,
+                  ros_pkg_new, ros_build
 ```
 
 Tools currently registered:
-`run_command`, `patch_file`, `start_background_job`, `list_background_jobs`,
-`read_job_logs`, `stop_background_job`, `list_ros_nodes`, `get_ros_graph`,
-`sample_ros_topic`, `start_ros_launch_job`, `restart_ros_node`,
-`create_ros_package`, `build_ros_workspace`.
+`workbench_shell`, `workspace_edit`, `job_start`, `job_list`,
+`job_logs`, `job_stop`, `ros_nodes`, `ros_graph`,
+`ros_topic`, `ros_launch`, `ros_restart`,
+`ros_pkg_new`, `ros_build`.
 
 ### Testing done so far
 
 - `npm run build` compiles clean (tsc, strict mode).
 - Verified live over actual MCP protocol (stdio, manual JSON-RPC):
   `tools/list` returned all tools correctly. (That original run predated the
-  11th tool `patch_file`; the full 11-tool set was later re-verified over the
+  11th tool `workspace_edit`; the full 11-tool set was later re-verified over the
   MCP stdio protocol — see "MCP protocol round-trip" below.)
-  `run_command` executed `echo` + `uname -a` for real, correct output returned.
-  `list_ros_nodes` correctly returned `{available: false, message: "..."}`
+  `workbench_shell` executed `echo` + `uname -a` for real, correct output returned.
+  `ros_nodes` correctly returned `{available: false, message: "..."}`
   at that time, since ROS 2 was not yet installed on the dev machine.
 - **ROS layer validated live (2026-07-14)** against ROS 2 **Lyrical** +
   turtlesim on Ubuntu 26.04 (WSL2). The project was built in the Linux fs
   (`~/projects/millwright`, Node via nvm — no sudo) and a harness
   (`harness.mjs`, project root) imported the compiled functions and called
   each one for real against a live turtlesim. Per-function results:
-  - `list_ros_nodes` — worked. **Fixed:** `ros2 node list` emitted the same
+  - `ros_nodes` — worked. **Fixed:** `ros2 node list` emitted the same
     node name twice (discovery race); output is now de-duplicated.
-  - `get_ros_graph` — worked (1 node, 5 turtlesim topics). **Fixed** a latent
+  - `ros_graph` — worked (1 node, 5 turtlesim topics). **Fixed** a latent
     no-op: `include_hidden` never actually passed `--include-hidden-topics`
     (both ternary branches were identical), so hidden topics could never be
     surfaced. Re-verified after the fix: `include_hidden=true` now additionally
     surfaces the hidden action topics
     `/turtle1/rotate_absolute/_action/{feedback,status}`.
-  - `sample_ros_topic` — **was broken, now fixed.** Root cause was NOT the
+  - `ros_topic` — **was broken, now fixed.** Root cause was NOT the
     `--once` flag (valid in Lyrical) but the trailing `messageType` positional
     passed to `ros2 topic echo`: a stale/wrong type makes echo fail hard
     ("The passed message type is invalid"). turtlesim moved Pose to
@@ -204,17 +209,17 @@ Tools currently registered:
     type from the live topic itself. Now returns Pose YAML regardless of the
     type string the caller passes. Timing ~1.2s per single-message sample,
     well under the 3s default, so the wrapper timeout did NOT need changing.
-    Follow-up: `message_type` is now `.optional()` in the `sample_ros_topic`
+    Follow-up: `message_type` is now `.optional()` in the `ros_topic`
     zod schema (`server.ts`), documented as accepted-but-ignored, so callers
     aren't required to supply a value the tool no longer uses.
-  - `start_ros_launch_job` — worked against turtlesim's real
+  - `ros_launch` — worked against turtlesim's real
     `multisim.launch.py`; brought up `/turtlesim1/turtlesim` and
     `/turtlesim2/turtlesim`.
-  - `restart_ros_node` — worked for the owned launch job (stopped + relaunched
+  - `ros_restart` — worked for the owned launch job (stopped + relaunched
     under the same label); correctly refused a node it did not launch.
   turtlesim ran headless (`QT_QPA_PLATFORM=offscreen`); the compiled-default
   RMW discovered nodes fine with no zenoh router needed.
-- **`patch_file` validated live (2026-07-14)** on real files via
+- **`workspace_edit` validated live (2026-07-14)** on real files via
   `patch-harness.mjs` (imports the compiled `patchFile` from `dist/`, mutates a
   sandbox file, and re-reads it from disk to confirm each result). All cases
   passed: unique-match apply; not-found refusal (file byte-identical); ambiguous
@@ -229,27 +234,27 @@ Tools currently registered:
   handshake, `notifications/initialized`, `tools/list`, then real `tools/call`s
   — exactly as an MCP client (Claude Desktop / Claude Code) would, NOT by
   importing the functions. Results: `initialize` negotiated protocol
-  `2024-11-05`; `tools/list` returned all **11** tools; `sample_ros_topic`'s
+  `2024-11-05`; `tools/list` returned all **11** tools; `ros_topic`'s
   schema shows `required: ["topic_name"]` only, so `message_type` is genuinely
   optional over the wire, and calling it with NO `message_type` returned Pose
-  YAML; `patch_file` called over the wire flipped `SECRET = 123` -> `SECRET =
-  999` on disk; `list_ros_nodes` returned the deduped `["/turtlesim"]`. Every
+  YAML; `workspace_edit` called over the wire flipped `SECRET = 123` -> `SECRET =
+  999` on disk; `ros_nodes` returned the deduped `["/turtlesim"]`. Every
   result matched the earlier function-level runs exactly — no discrepancies, so
   no fixes were needed.
 - **ROS workspace tools + full develop loop validated live (2026-07-14)** via
-  `workspace-harness.mjs` against real colcon on ROS 2 Lyrical. `create_ros_package`
+  `workspace-harness.mjs` against real colcon on ROS 2 Lyrical. `ros_pkg_new`
   scaffolded an `ament_cmake` package (`dev_loop_demo`, dep `rclcpp`, node
-  `demo_node`); `build_ros_workspace` built it (`success: true`, ~5.9s, real colcon
-  output). Then the loop: `patch_file` appended a garbage token to `main()` ->
-  `build_ros_workspace` returned `{ success: false, exitCode: 2 }` with the REAL
+  `demo_node`); `ros_build` built it (`success: true`, ~5.9s, real colcon
+  output). Then the loop: `workspace_edit` appended a garbage token to `main()` ->
+  `ros_build` returned `{ success: false, exitCode: 2 }` with the REAL
   gcc error in `stderr` (`error: expected initializer before 'GARBAGE_TOKEN_ZZZ'`
-  plus the gmake failure chain) -> `patch_file` removed the token ->
-  `build_ros_workspace` succeeded again (incremental, ~0.6s). This run also caught
+  plus the gmake failure chain) -> `workspace_edit` removed the token ->
+  `ros_build` succeeded again (incremental, ~0.6s). This run also caught
   a wrong assumption: Lyrical's `ros2 pkg create` C++ template has NO `return 0;`
   line (implicit return, `[[maybe_unused]]` params), so the first break anchor
-  didn't match — `patch_file` correctly returned `applied: false` (search not
+  didn't match — `workspace_edit` correctly returned `applied: false` (search not
   found) instead of silently mis-editing, which is exactly the guardrail it's for.
-- **Persistent-subscription `sample_ros_topic` validated live (2026-07-18)** via
+- **Persistent-subscription `ros_topic` validated live (2026-07-18)** via
   `sample-harness.mjs` against turtlesim (`/turtle1/pose` publishes ~62 Hz).
   Results: `max_messages=1` -> 1 msg in ~2.0s; `max_messages=5` -> 5 msgs in
   ~1.3s; `max_messages=20` -> 20 msgs in ~1.5s (the old N-cold-starts design
@@ -264,7 +269,7 @@ Tools currently registered:
   fixed by only resolving after the child's exit is confirmed (the fix is the
   wait-for-exit contract now described in roadmap #4). The full MCP round-trip
   (`mcp-roundtrip.sh`) was then re-run: `tools/list` returns all **13** tools,
-  and `sample_ros_topic` called over the wire with `max_messages: 3` returned
+  and `ros_topic` called over the wire with `max_messages: 3` returned
   `sampled: 3` clean YAML docs (no trailing `---`), with zero orphan processes
   after the run.
 - **MCPB bundle validated three ways (2026-07-18).** `mcpb validate` passes;
@@ -278,11 +283,11 @@ Tools currently registered:
   simulation of Claude Desktop*: extracted the actual packed .mcpb on the
   Windows side and spawned it with Windows Node using the manifest's literal
   mcp_config (env substituted as Desktop would). All 13 tools listed;
-  run_command, patch_file (Windows path), list_ros_nodes (via wsl.exe
-  routing!), and sample_ros_topic max_messages:3 -> sampled:3 all correct;
+  workbench_shell, workspace_edit (Windows path), ros_nodes (via wsl.exe
+  routing!), and ros_topic max_messages:3 -> sampled:3 all correct;
   ps inside WSL afterward: zero orphaned `topic echo` processes — the kill
   contract holds through the wsl.exe indirection. Observed: on this machine
-  `bash` on the Windows PATH resolves to the WSL bridge, so run_command
+  `bash` on the Windows PATH resolves to the WSL bridge, so workbench_shell
   output showed the WSL kernel (see Distribution readiness #7).
 - **Installed-extension verification completed (2026-07-18).** The user
   installed `millwright-0.3.0.mcpb` through Claude Desktop's real install
@@ -292,8 +297,8 @@ Tools currently registered:
   Extension are the reliable paths). Post-install, the extension's 13 tools
   came up live and were exercised through the installed server with the
   user's real config values (`/opt/ros/lyrical/setup.bash`, `Ubuntu`,
-  `bash`): `list_ros_nodes` -> `/turtlesim`; `run_command` -> WSL kernel
-  via the bash bridge; `sample_ros_topic max_messages:3` -> `sampled: 3`
+  `bash`): `ros_nodes` -> `/turtlesim`; `workbench_shell` -> WSL kernel
+  via the bash bridge; `ros_topic max_messages:3` -> `sampled: 3`
   clean YAML docs; zero orphaned `topic echo` processes afterward. This
   closes the last NOT-verified item from the MCPB round of testing.
 - **User install report (2026-07-18), three findings, all acted on:**
@@ -312,7 +317,7 @@ Tools currently registered:
      Claude's BUILT-IN sandbox (hostname `claude`, Ubuntu 22.04), not
      Millwright — generically-named tools lose to built-ins until the
      extension is named explicitly ("Using Millwright, ..."), after which
-     routing sticks. Mitigations: run_command's description (server +
+     routing sticks. Mitigations: workbench_shell's description (server +
      manifest) now says it runs on the user's REAL system and to prefer
      it when the user means their own machine; README tells users to name
      the extension in first prompts. Keep this in mind for any future
@@ -334,7 +339,7 @@ Tools currently registered:
     container-side coreutils timeout.
   - *allowlist*: patch inside ws applies; outside ws refused byte-intact;
     sandbox-on-without-workspace_dir refused with actionable guidance
-    while run_command still works (no mount).
+    while workbench_shell still works (no mount).
   - *jobs*: attached `docker run` streams logs into JobManager; stop
     terminates AND removes the container; `--rm` cleans; status reports
     `killed` for deliberate stops.
@@ -354,7 +359,7 @@ Tools currently registered:
   container as the host uid:gid.
 - **Adversarial validation (2026-07-19)** via `adversarial-harness.mjs` —
   genuine break-out attempts, not just fence inspection. All contained:
-  - *patch_file path traversal*: `<ws>/../../../etc/passwd`, extra-depth,
+  - *workspace_edit path traversal*: `<ws>/../../../etc/passwd`, extra-depth,
     `./`-normalized, `%2e%2e`-encoded, the prefix-sibling trap
     (`/tmp/mw_ws_evil/...`), and bare `/etc/passwd` — ALL refused;
     /etc/passwd byte-unchanged. (realpath + symlink resolution + `startsWith(root+sep)`.)
@@ -372,7 +377,7 @@ Tools currently registered:
     table unmoved; turtlesim alive. NOTE: a `docker exec` bomb's children
     don't survive the exec exiting, and a saturated container can't fork its
     own measurement — hence the dedicated-container + host-side measurement.
-  - *memory bomb* (`tail /dev/zero`) THROUGH run_command vs `--memory 2g`:
+  - *memory bomb* (`tail /dev/zero`) THROUGH workbench_shell vs `--memory 2g`:
     OOM-killed (exit 137, cgroup `oom_kill 1`) at the 2g cap; host memory
     barely moved; sandbox still usable after.
   - **The harness caught two of its own measurement flaws** (pgrep absent in
@@ -387,12 +392,12 @@ Tools currently registered:
     responsive. Resource story now complete: pids + memory + CPU all validated
     biting under attack.
 - **ROS introspection harness re-run against 0.4.0 (2026-07-19)**: all five
-  tools green (list_ros_nodes, get_ros_graph incl. hidden, sample_ros_topic
-  both type args, start_ros_launch_job, restart_ros_node + refusal). Closes
+  tools green (ros_nodes, ros_graph incl. hidden, ros_topic
+  both type args, ros_launch, ros_restart + refusal). Closes
   the "not re-run post-sandbox" gap — that lane is unchanged by the sandbox.
-- **Multi-distro `build_ros_workspace` (2026-07-19).** COVERAGE NOTE: only the
+- **Multi-distro `ros_build` (2026-07-19).** COVERAGE NOTE: only the
   CONTAINERIZED build lane varies by distro (image `ros:<distro>-ros-base` from
-  ros_setup_script). `create_ros_package` runs on the HOST's ros2 (Lyrical here)
+  ros_setup_script). `ros_pkg_new` runs on the HOST's ros2 (Lyrical here)
   and emits a generic ament_cmake scaffold — it is NOT distro-varied, so
   "tested against jazzy/humble" applies to the build, not to create.
   - **jazzy: PASS** — package built in `ros:jazzy-ros-base` (network=none,
@@ -413,10 +418,10 @@ documented**, not scheduled for closure. Rationale:
   of the isolation the sandbox exists to provide. Net result: more complexity,
   weaker sandbox.
 - Risk profile doesn't justify it: these are structured `ros2 <verb>` calls, not
-  arbitrary shell, and `restart_ros_node` already refuses processes it didn't
+  arbitrary shell, and `ros_restart` already refuses processes it didn't
   launch. The dangerous lanes (shell, CMake-executing builds) are already
   contained and adversarially tested.
-- The portability worry is largely covered elsewhere: `build_ros_workspace` IS
+- The portability worry is largely covered elsewhere: `ros_build` IS
   containerised and validated on Lyrical + Jazzy + Humble, which is where distro
   differences (compilers, ament versions) actually bite. The ROS 2 CLI surface
   used by introspection is stable across distros.
@@ -429,7 +434,7 @@ Documented for users in README under "Coverage boundaries (honest)".
 ### Session handoff — verified vs pending (2026-07-19 end)
 
 **VERIFIED & committed this session** (HEAD `2210066`): 0.4.1 root guard +
-run_command description; 0.4.2 broad-workspace hard-refuse/warn split;
+workbench_shell description; 0.4.2 broad-workspace hard-refuse/warn split;
 0.4.3 `--cpus` cap (live: 16-core spinner → ~1 core); multi-distro build on
 jazzy + humble; Tier-1 unit tests (`npm test`, 6/6). Docker left ENABLED.
 Off-disk backup: `D:\Linux CLI\millwright-backup-2210066.bundle`.
@@ -458,7 +463,7 @@ Off-disk backup: `D:\Linux CLI\millwright-backup-2210066.bundle`.
    duplicate entries, `getRosGraph` include-hidden no-op. The predicted
    `sampleRosTopic` adjustment was real, though the cause differed from the
    guess (the message-type positional, not the `--once` flag).
-2. **[DONE 2026-07-14] `patch_file` tool** — diff-based file editing
+2. **[DONE 2026-07-14] `workspace_edit` tool** — diff-based file editing
    (exact search block / replace block) instead of round-tripping whole
    files through the LLM. Implemented in `src/file-tools.ts`, registered
    in `server.ts`. Refuses zero-match and ambiguous multi-match edits
@@ -466,14 +471,14 @@ Off-disk backup: `D:\Linux CLI\millwright-backup-2210066.bundle`.
    refusal, and inserts replacement text literally (no `$&`/`$1` regex
    expansion). Validated on real files via `patch-harness.mjs` — see
    "Testing done so far".
-3. **[DONE 2026-07-14] ROS 2 workspace tools** — `create_ros_package`
-   (wraps `ros2 pkg create`) and `build_ros_workspace` (wraps `colcon
-   build`, bounded + output-truncated like run_command, returning the real
-   compiler errors in `stderr` on failure). With `patch_file` these close
+3. **[DONE 2026-07-14] ROS 2 workspace tools** — `ros_pkg_new`
+   (wraps `ros2 pkg create`) and `ros_build` (wraps `colcon
+   build`, bounded + output-truncated like workbench_shell, returning the real
+   compiler errors in `stderr` on failure). With `workspace_edit` these close
    the develop loop: scaffold -> edit -> build -> read the compiler errors
    -> patch -> rebuild. Validated live against real colcon — see "Testing
    done so far".
-4. **[DONE 2026-07-18] Harden `sample_ros_topic` for `max_messages > 1`.**
+4. **[DONE 2026-07-18] Harden `ros_topic` for `max_messages > 1`.**
    Replaced the N-cold-starts loop (per-message budget of `timeout_sec /
    max_messages` that SHRANK as N grew, plus ~1s startup per message) with
    a single persistent `ros2 topic echo` subscription: stdout is buffered
@@ -499,11 +504,11 @@ Off-disk backup: `D:\Linux CLI\millwright-backup-2210066.bundle`.
    hardcoded in `shell-tools.ts`.
 7. **[DONE 2026-07-19] Docker sandboxing** — implemented per the approved
    spec in `docs/sandboxing.md` (v0.4.0, `src/sandbox.ts`). Default-on
-   (`sandbox_mode=docker`): run_command + background jobs execute in a
+   (`sandbox_mode=docker`): workbench_shell + background jobs execute in a
    per-session `ubuntu:24.04` workbench (`--init`, `--memory 2g`,
    `--pids-limit 512`, workspace mounted at the identical path, container
-   reused across calls, session-labeled + swept on exit); patch_file and
-   create_ros_package are confined to `workspace_dir`; Linux colcon builds
+   reused across calls, session-labeled + swept on exit); workspace_edit and
+   ros_pkg_new are confined to `workspace_dir`; Linux colcon builds
    run in `ros:<distro>-ros-base` with `--network=none`, `--init`, and the
    HOST uid:gid; Windows builds stay host-side with a mandatory per-call
    warning; Docker-unavailable fails CLOSED with guidance. Timeouts are
@@ -594,33 +599,33 @@ New evidence, all message-level logs rather than source audit:
   stderr at startup so client logs capture what each instance ran with.
 
 **Fixes shipped 0.4.1 → 0.4.2 (2026-07-19):**
-- **0.4.1** `isInsideWorkspace` refuses the workspace ROOT itself (patch_file /
-  create_ros_package act only on paths strictly beneath it). Unit-verified.
-- **0.4.1** `run_command` description rewritten — the 0.3.0 "runs on your REAL
+- **0.4.1** `isInsideWorkspace` refuses the workspace ROOT itself (workspace_edit /
+  ros_pkg_new act only on paths strictly beneath it). Unit-verified.
+- **0.4.1** `workbench_shell` description rewritten — the 0.3.0 "runs on your REAL
   system" text was false under default sandboxing and caused the confusion in
   that session.
 - **0.4.2 broad-workspace split** (per user decision): `workspaceHardRefusal()`
   HARD-REFUSES a filesystem/drive/home root (`/`, `/home`, `$HOME`, `/root`,
-  `/mnt/<drive>`) at every sandbox entry point (run_command, jobs, build,
+  `/mnt/<drive>`) at every sandbox entry point (workbench_shell, jobs, build,
   patch/create) BEFORE Docker is touched — no click-past. A directory that
   merely holds multiple repos (e.g. `~/projects`) is still ALLOWED (blocking it
   would push users to disable sandboxing) but `workspaceScopeWarning()` now
-  rides in `run_command`/`build`/`create` RESULTS, not just startup. All
+  rides in `workbench_shell`/`build`/`create` RESULTS, not just startup. All
   unit-verified without Docker.
-- **0.4.4 build gate (2026-07-20):** `build_ros_workspace.workspace_path` was
+- **0.4.4 build gate (2026-07-20):** `ros_build.workspace_path` was
   the ONE path argument that skipped `isInsideWorkspace` — a sandboxed "build"
   of any host directory would execute its CMakeLists host-side on Windows.
   Found by probing the stale instance during the re-investigation. Now gated,
   with `allowRoot` because building the configured workspace root itself is
   the normal colcon flow. Unit-verified via subprocess probes (8/8 green).
 - **0.4.5 path translation (2026-07-21):** structural Windows fix. Because
-  run_command executes in-container and returns POSIX paths, the model then
-  hands patch_file / build / create a POSIX path, which host-side on Windows
+  workbench_shell executes in-container and returns POSIX paths, the model then
+  hands workspace_edit / build / create a POSIX path, which host-side on Windows
   resolves to `C:\home\...` and dies "not found" BEFORE the gate — so the guard
   was silently never reached for Windows users. `resolveCandidatePath`
   (sandbox.ts) now normalizes POSIX->WSL-UNC (and `/mnt/<d>`->`<D>:\`) and
-  resolves relatives against the workspace root; applied by patch_file,
-  create_ros_package, and the build gate, with `resolved_path` echoed on every
+  resolves relatives against the workspace root; applied by workspace_edit,
+  ros_pkg_new, and the build gate, with `resolved_path` echoed on every
   result. ORDER is the whole safety argument: translate THEN gate, never gate
   the pre-translation string. Adversarially verified on win32 that
   `/mnt/c/...`->`C:\...` (e.g. `C:\Windows\...\hosts`) and post-translation `..`
@@ -667,15 +672,15 @@ The .mcpb installs and runs, but do NOT hand this to strangers yet:
 6. ~~No tool annotations~~ **FIXED 2026-07-18**: all 13 tools carry
    explicit `title`/`readOnlyHint`/`destructiveHint`/`idempotentHint`/
    `openWorldHint` (all four set explicitly because spec defaults are
-   permissive). Destructive: run_command, patch_file, start_background_job
-   (arbitrary exec — added beyond the obvious five), stop_background_job,
-   restart_ros_node, build_ros_workspace. Verified over the wire.
-7. **run_command's `bash` resolution on Windows is PATH-dependent** —
+   permissive). Destructive: workbench_shell, workspace_edit, job_start
+   (arbitrary exec — added beyond the obvious five), job_stop,
+   ros_restart, ros_build. Verified over the wire.
+7. **workbench_shell's `bash` resolution on Windows is PATH-dependent** —
    observed live: it resolved to the WSL bridge bash, so shell commands
    silently ran in WSL, not Windows. Mitigated by the `shell_bin` setting
    but the default remains PATH-dependent. STILL OPEN (support burden).
 8. **JobManager state is per-process**: Desktop restarts the server per
-   session, so restart_ros_node ownership doesn't survive restarts.
+   session, so ros_restart ownership doesn't survive restarts.
    STILL OPEN.
 
 ## Development environment

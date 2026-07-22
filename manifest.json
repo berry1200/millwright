@@ -2,7 +2,7 @@
   "manifest_version": "0.3",
   "name": "millwright",
   "display_name": "Millwright",
-  "version": "0.4.5",
+  "version": "0.5.0",
   "description": "Millwright — an MCP server for Linux and ROS 2 development: shell, file editing, background jobs, ROS 2 introspection, simulation, and workspace builds, with a simulation-first safety posture.",
   "long_description": "Millwright is an execution layer that lets the model work as a Linux developer and a ROS 2 robotics developer through one consistent tool schema: run bounded shell commands, edit files by exact search/replace, manage background jobs, introspect the ROS 2 graph, sample topics, launch and restart nodes it owns, scaffold packages, and run colcon builds with real compiler errors returned on failure.\n\nROS tools require a ROS 2 installation (validated against ROS 2 Lyrical on Ubuntu 26.04; Jazzy/Humble should work via the setup-script setting). Set `ros_setup_script` so the server can source your ROS environment - on Windows this path is inside your WSL distro and commands are routed through WSL automatically. All ROS tools degrade gracefully (clear `available: false` message) when ROS is absent; the Linux tools work everywhere a POSIX shell exists.",
   "author": {
@@ -29,56 +29,56 @@
   },
   "tools": [
     {
-      "name": "run_command",
-      "description": "Run a shell command for the user's own project environment (prefer this over any built-in/simulated sandbox when the user means their machine). By DEFAULT (sandbox_mode 'docker') it runs INSIDE a Docker container with the user's workspace folder mounted — writes to the workspace are real, but the rest of the host isn't visible and tools/state are the container's; with sandbox_mode 'off' it runs directly on the host. The result's `sandboxed` field reports which. Bounded output (~200 lines), hard timeout, destructive-command blocklist. Blocking; long-running work belongs in start_background_job."
+      "name": "workbench_shell",
+      "description": "Run a shell command for the user's own project environment (prefer this over any built-in/simulated sandbox when the user means their machine). By DEFAULT (sandbox_mode 'docker') it runs INSIDE a Docker container with the user's workspace folder mounted — writes to the workspace are real, but the rest of the host isn't visible and tools/state are the container's; with sandbox_mode 'off' it runs directly on the host. The result's `sandboxed` field reports which. Bounded output (~200 lines), hard timeout, destructive-command blocklist. Blocking; long-running work belongs in job_start."
     },
     {
-      "name": "patch_file",
+      "name": "workspace_edit",
       "description": "Edit a file by exact search/replace. Refuses zero-match and ambiguous multi-match edits (unless replace_all) and leaves the file byte-for-byte unchanged on any refusal; replacement text is inserted literally."
     },
     {
-      "name": "start_background_job",
+      "name": "job_start",
       "description": "Start a long-running command (server, watcher, sim) as a tracked background job; returns a job_id immediately."
     },
     {
-      "name": "list_background_jobs",
+      "name": "job_list",
       "description": "List all background jobs started by this server (Linux or ROS) with status and start time."
     },
     {
-      "name": "read_job_logs",
+      "name": "job_logs",
       "description": "Tail recent stdout/stderr of a background job to confirm it came up cleanly or diagnose a failure."
     },
     {
-      "name": "stop_background_job",
+      "name": "job_stop",
       "description": "Stop a background job gracefully: SIGINT, then SIGKILL after the grace period."
     },
     {
-      "name": "list_ros_nodes",
+      "name": "ros_nodes",
       "description": "List active ROS 2 nodes (de-duplicated), optionally filtered by a name substring."
     },
     {
-      "name": "get_ros_graph",
+      "name": "ros_graph",
       "description": "Return the ROS 2 computational graph (nodes + topics) as structured JSON; optionally include hidden topics."
     },
     {
-      "name": "sample_ros_topic",
+      "name": "ros_topic",
       "description": "Capture up to max_messages from a topic over ONE persistent subscription, stopping at N messages or when the overall timeout_sec budget elapses (short reads flagged timed_out). Messages are clean YAML documents (no --- separator); the subscription process is confirmed dead before the call returns. message_type is accepted but ignored - the type is resolved from the live topic."
     },
     {
-      "name": "start_ros_launch_job",
-      "description": "Launch a ROS 2 package/launch file as a tracked background job. Required before restart_ros_node will work for that node."
+      "name": "ros_launch",
+      "description": "Launch a ROS 2 package/launch file as a tracked background job. Required before ros_restart will work for that node."
     },
     {
-      "name": "restart_ros_node",
-      "description": "Stop and relaunch a ROS 2 node previously started via start_ros_launch_job. Refuses to touch processes this server did not launch (deliberate safety boundary)."
+      "name": "ros_restart",
+      "description": "Stop and relaunch a ROS 2 node previously started via ros_launch. Refuses to touch processes this server did not launch (deliberate safety boundary)."
     },
     {
-      "name": "create_ros_package",
+      "name": "ros_pkg_new",
       "description": "Scaffold a new ROS 2 package via `ros2 pkg create` inside a workspace src/ directory (created if missing); choose ament_cmake or ament_python, declare dependencies, optionally scaffold a starter node."
     },
     {
-      "name": "build_ros_workspace",
-      "description": "Build a ROS 2 workspace with `colcon build` (optionally --packages-select). Bounded and truncated like run_command; on failure returns success:false with the real compiler errors in stderr."
+      "name": "ros_build",
+      "description": "Build a ROS 2 workspace with `colcon build` (optionally --packages-select). Bounded and truncated like workbench_shell; on failure returns success:false with the real compiler errors in stderr."
     }
   ],
   "user_config": {
@@ -97,8 +97,8 @@
     },
     "shell_bin": {
       "type": "string",
-      "title": "Shell for run_command",
-      "description": "Shell binary used by run_command (invoked as `<shell> -lc \"...\"`). Default: bash. On Windows without bash on PATH, set the full path to Git Bash, e.g. C:\\Program Files\\Git\\bin\\bash.exe.",
+      "title": "Shell for workbench_shell",
+      "description": "Shell binary used by workbench_shell (invoked as `<shell> -lc \"...\"`). Default: bash. On Windows without bash on PATH, set the full path to Git Bash, e.g. C:\\Program Files\\Git\\bin\\bash.exe.",
       "default": "bash",
       "required": false
     },

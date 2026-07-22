@@ -102,7 +102,7 @@ export async function runCommand(command: string, timeoutMs = 30000, cwd?: strin
         blocked: false,
         shell_available: false,
         message:
-          `Shell '${SHELL_BIN}' was not found on this system, so run_command (and background ` +
+          `Shell '${SHELL_BIN}' was not found on this system, so workbench_shell (and background ` +
           `jobs using it) cannot work. Install a POSIX shell - on Windows, Git Bash or WSL - ` +
           `or set the shell_bin setting (SHELL_BIN env var) to a full path, e.g. ` +
           `C:\\Program Files\\Git\\bin\\bash.exe. ROS and file tools are unaffected.`,

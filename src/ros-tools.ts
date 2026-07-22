@@ -260,8 +260,8 @@ export async function restartRosNode(nodeName: string, gracePeriodSec = 5.0) {
       restarted: false,
       message:
         `No tracked job for node '${nodeName}'. This server can only restart nodes it launched ` +
-        `itself via start_ros_launch_job (it won't kill processes it doesn't own). ` +
-        `Launch it through start_ros_launch_job first, then restart_ros_node will work.`,
+        `itself via ros_launch (it won't kill processes it doesn't own). ` +
+        `Launch it through ros_launch first, then ros_restart will work.`,
     };
   }
   await jobManager.stop(existing.id, "SIGINT", gracePeriodSec * 1000);
@@ -271,14 +271,14 @@ export async function restartRosNode(nodeName: string, gracePeriodSec = 5.0) {
 
 // ---- ROS 2 workspace management (create + build) --------------------------
 // These turn the introspection/control tools into a real develop loop:
-// create_ros_package -> patch_file (edit code) -> build_ros_workspace ->
-// read the returned stderr -> patch_file again to fix -> rebuild.
+// ros_pkg_new -> workspace_edit (edit code) -> ros_build ->
+// read the returned stderr -> workspace_edit again to fix -> rebuild.
 
 let colconAvailableCache: boolean | null = null;
 
 /** colcon ships with `ros-dev-tools`, separately from the `ros2` CLI, so a
  * ros-base-only install has ros2 but no colcon. Checked lazily/cached so
- * build_ros_workspace degrades gracefully instead of throwing a raw ENOENT. */
+ * ros_build degrades gracefully instead of throwing a raw ENOENT. */
 export async function isColconAvailable(): Promise<boolean> {
   if (colconAvailableCache !== null) return colconAvailableCache;
   try {
@@ -312,7 +312,7 @@ export async function createRosPackage(
   if (!(await isRos2Available())) return { available: false, message: ROS_NOT_AVAILABLE_MSG };
   // Sandbox allowlist: scaffolding writes files, so the destination must be
   // inside the configured workspace when sandboxing is on - same rule as
-  // patch_file (one folder, one mental model).
+  // workspace_edit (one folder, one mental model).
   // Translate first (POSIX->WSL UNC on Windows, relatives against the workspace
   // root), gate on the host-addressable form, then hand the WSL-side POSIX form
   // to ros2 pkg create. See resolveCandidatePath's security note.
@@ -364,7 +364,7 @@ export async function createRosPackage(
 
 /**
  * Wraps `colcon build`, run from the workspace root. Bounded + output-truncated
- * exactly like run_command, so a compile failure comes back as
+ * exactly like workbench_shell, so a compile failure comes back as
  * `{ success: false, exitCode, stderr }` with the real compiler errors in
  * `stderr` (colcon echoes a failed package's stderr in its own output). A build
  * exits (unlike a launch/sim), so this is a blocking call with a timeout rather
@@ -396,7 +396,7 @@ export async function buildRosWorkspace(
     if (refusal) return { available: true, success: false, workspace_refused: true, reason: refusal };
     // Containment gate (2026-07-20 finding): builds execute the workspace's
     // CMakeLists/setup.py, so workspace_path must obey the same allowlist as
-    // patch_file/create_ros_package - builds were previously the one ungated
+    // workspace_edit/ros_pkg_new - builds were previously the one ungated
     // path argument, and on Windows they run host-side. allowRoot because
     // building the configured workspace root itself IS the normal colcon flow.
     const buildGate = await isInsideWorkspace(hostWs, { allowRoot: true });

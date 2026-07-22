@@ -13,7 +13,7 @@ criterion is validated against a live system, not merely implemented.
 Establish a working MCP server skeleton with the Linux execution layer.
 
 **Delivered:** TypeScript project, stdio transport, `JobManager` process
-registry, `run_command` with blocklist and truncation, background job tools.
+registry, `workbench_shell` with blocklist and truncation, background job tools.
 Six tools total. Verified over real MCP `tools/list`.
 
 **Key decision:** rejected forking Desktop Commander MCP. It carries large
@@ -22,7 +22,7 @@ Borrowed two patterns instead — persistent process management and zod-schema
 tool registration.
 
 **Exit criteria:** ✅ compiles clean · ✅ `tools/list` returns all tools ·
-✅ `run_command` executes for real · ✅ ROS tools degrade gracefully when ROS absent
+✅ `workbench_shell` executes for real · ✅ ROS tools degrade gracefully when ROS absent
 
 ---
 
@@ -35,12 +35,12 @@ ROS 2 Lyrical Luth, WSLg for GUI. (Initially assumed Ubuntu 24.04 / ROS Jazzy �
 wrong, corrected during setup.)
 
 **Three real bugs found and fixed:**
-1. `sample_ros_topic` passed `messageType` as a positional to `ros2 topic echo`,
+1. `ros_topic` passed `messageType` as a positional to `ros2 topic echo`,
    failing hard on any stale type. turtlesim's messages had moved to
    `turtlesim_msgs` in Lyrical, so the documented type errored. Fix: drop the
    positional entirely; echo auto-resolves.
-2. `list_ros_nodes` returned duplicates from discovery races.
-3. `get_ros_graph` had a no-op ternary — `include_hidden=true` never actually
+2. `ros_nodes` returned duplicates from discovery races.
+3. `ros_graph` had a no-op ternary — `include_hidden=true` never actually
    added the flag.
 
 **Exit criteria:** ✅ all five ROS tools exercised against live turtlesim ·
@@ -52,17 +52,17 @@ wrong, corrected during setup.)
 
 Make the tools compose into a real edit → build → read error → fix cycle.
 
-**Delivered:** `patch_file` (exact search/replace, refuses zero and ambiguous
+**Delivered:** `workspace_edit` (exact search/replace, refuses zero and ambiguous
 matches, byte-identical on refusal, literal insertion with no regex expansion);
-`create_ros_package`; `build_ros_workspace` returning real compiler errors.
-Then `sample_ros_topic` rewritten to use one persistent subscription instead of
+`ros_pkg_new`; `ros_build` returning real compiler errors.
+Then `ros_topic` rewritten to use one persistent subscription instead of
 N cold starts — 20 messages in 1.5s versus ~1s startup *per message* previously.
 
 **Validation caught a race:** the kill contract resolved the promise before
 sending SIGINT. Fixed so "tool returned" implies "process is gone."
 
 **Exit criteria:** ✅ full loop validated with a genuine gcc error ·
-✅ `patch_file` all six cases verified on disk · ✅ zero orphaned processes ·
+✅ `workspace_edit` all six cases verified on disk · ✅ zero orphaned processes ·
 ✅ MCP round-trip re-verified
 
 ---
@@ -111,7 +111,7 @@ Per `docs/sandboxing.md`:
 - Workbench container (`ubuntu:24.04`) for the Linux lane via `docker exec`
 - Workspace bind-mounted at the **same absolute path** inside and out
 - Build container (OSRF `ros:<distro>`) with `--network=none`
-- `patch_file` host-side with a path allowlist equal to the mount
+- `workspace_edit` host-side with a path allowlist equal to the mount
 - ROS introspection lane host-side in v1 (DDS doesn't survive Docker Desktop's VM)
 - `--memory` and `--pids-limit` set
 - Fail closed with no Docker; default-on for bundle installs
@@ -122,10 +122,10 @@ session-labelled container cleanup, and — post-incident — a workspace-root
 hard-refusal with a multi-repo scope warning surfaced in tool results
 (0.4.2/0.4.3).
 
-**Resolved (0.4.4 / 0.4.5):** the `build_ros_workspace` containment gap — it was
+**Resolved (0.4.4 / 0.4.5):** the `ros_build` containment gap — it was
 the one path argument skipping `isInsideWorkspace`, so a Windows host-side build
 could execute CMake from any directory — is closed. `workspace_path` is now
-gated like `patch_file` / `create_ros_package` (with `allowRoot`, since building
+gated like `workspace_edit` / `ros_pkg_new` (with `allowRoot`, since building
 the workspace root is the normal colcon flow). 0.4.5 additionally translates
 model-supplied POSIX paths to host-addressable form BEFORE the gate, closing a
 Windows-wide hole where a container-native path (`/home/...`) failed to resolve
@@ -199,7 +199,7 @@ is actually live.
 **Self-deception risks named:** the distro criterion held only for the build
 lane (now rewritten); CI exists but has never run — an unexecuted suite
 prevents no regressions; every validation so far was by the author on the
-author's machine; and the `build_ros_workspace` containment gap (4.1 open
+author's machine; and the `ros_build` containment gap (4.1 open
 finding) surfaced only because live verification deliberately targeted a
 directory outside the configured workspace.
 
@@ -246,13 +246,87 @@ close before Phase 5 distribution.**
 
 ## Phase 5 — Distribution ⬜ FUTURE
 
-Get it into other people's hands legitimately.
+**Goal: a stranger can install and use Millwright without asking the author
+questions, and it's accepted into a public directory.**
 
-- Public repo with accurate README, changelog, versioning
-- Hosted privacy policy URL (required for directory review)
-- Directory submission requirements met
-- Brand assets complete (icon at all required sizes)
-- Install documentation verified by someone who has never seen the project
+Sequenced by what actually blocks what. The critical path runs through the tool
+rename; three independent tracks converge with a cold-user trial at submission.
+
+### 5.0 Tool rename — the front gate (breaking; do FIRST) ✅ done 2026-07-22 (0.5.0)
+Tool names are API. While the author is the only user the rename is free; after
+one handoff it is a breaking change for someone else, and `run_command` had
+already lost a call to a client's built-in once. Renamed to a semantic scheme
+that makes ownership AND the sandbox boundary unambiguous (which also does the
+disambiguation 5.1 needs):
+
+| Old | New |
+|---|---|
+| run_command | workbench_shell |
+| patch_file | workspace_edit |
+| start_background_job | job_start |
+| list_background_jobs | job_list |
+| read_job_logs | job_logs |
+| stop_background_job | job_stop |
+| list_ros_nodes | ros_nodes |
+| get_ros_graph | ros_graph |
+| sample_ros_topic | ros_topic |
+| start_ros_launch_job | ros_launch |
+| restart_ros_node | ros_restart |
+| create_ros_package | ros_pkg_new |
+| build_ros_workspace | ros_build |
+
+Internal handler names stay (`runCommand`, `patchFile`, …). One atomic commit,
+`0.5.0`. Two gates enforced before "done": (a) a cross-file name-consistency
+check (server.ts ↔ manifest ↔ README ↔ CLAUDE.md — a 13-name rename is where a
+four-of-five typo hides); (b) over-the-wire `tools/list` proving all 13 new names
+appear and zero old names survive. Author re-runs the four guard checks against
+the new names after a fresh install (renaming shouldn't change guard behaviour,
+but that's an assumption until installed).
+
+### 5.1 Claude Code profile (clientInfo) — ergonomics, after 5.0 ⬜
+MCP `initialize` carries `clientInfo` (name/version), currently ignored. In
+Claude Code, Millwright's shell/file tools overlap with native ones that run on
+the HOST while ours run in a CONTAINER — same session, two filesystems, the
+path-confusion class we already hit.
+- **Decision: keep all 13 tools; do NOT reduce the set for Claude Code.** The
+  sandboxed shell's whole value there is the isolation native Bash doesn't
+  provide; hiding it throws away the differentiator, and a tool surface that
+  changes on a spoofable field is unpredictable.
+- The 5.0 rename does the real disambiguation (the name signals
+  container-vs-host); descriptions state the boundary ("runs in a container;
+  only the workspace is shared with the host").
+- `clientInfo` is used ONLY for ergonomics: log it on the startup banner
+  (diagnostics), optionally sharpen descriptions when it is Claude Code.
+  **Never gate the sandbox on it** — it is self-reported and spoofable; sandbox
+  posture stays config-driven (`SANDBOX_MODE`). Baseline descriptions must be
+  correct without it.
+
+### 5.2 Multi-environment breadth (was 4.3) — parallel track ⬜
+Native Linux (non-WSL) and Windows-without-WSL, currently untested. Gates the
+honesty of any "works for a stranger" claim. **Expect the uid-mapping
+root-ownership class here** (see Engineering lessons in CLAUDE.md): native Docker
+is genuinely root, unlike Docker Desktop's uid-mapped VM.
+
+### 5.3 Brand assets — parallel track ⬜
+Icon at all required sizes. Required for directory submission.
+
+### 5.4 Hosted privacy-policy URL — parallel track ⬜
+Required for directory review.
+
+### 5.5 Cold-user install trial ⬜
+A real never-seen-it person installs and uses it. Depends on 5.0 (final names in
+docs) and 5.2 (breadth, so the claim is honest). This IS the exit criterion "a
+stranger can install without asking questions."
+
+### 5.6 Directory submission ⬜
+The convergence point. Depends on 5.0, 5.2, 5.3, 5.4, 5.5, plus accurate
+README / changelog / versioning.
+
+**Sequencing warning (don't fool yourself):** icon (5.3) and privacy-URL (5.4)
+are the easy, visible tasks — doing them first manufactures the *illusion* of
+Phase 5 progress while the rename (the actual blocker) slips and gets more
+expensive with every day there's a second user. 5.0 goes first (done); icon /
+privacy-URL / breadth are independent tracks, never a reason to defer the gate.
 
 **Exit criteria:** ⬜ a stranger can install and use it without asking questions ·
 ⬜ directory submission accepted
