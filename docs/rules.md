@@ -17,9 +17,9 @@ has already caught four bugs that code review missed entirely:
 
 | Bug | How review missed it |
 |---|---|
-| `ros_topic` passed `messageType` as a positional to `ros2 topic echo`, failing hard on any stale type | Looked correct; the type string *was* correct in older distros |
+| `sample_ros_topic` passed `messageType` as a positional to `ros2 topic echo`, failing hard on any stale type | Looked correct; the type string *was* correct in older distros |
 | `include_hidden ? ["topic","list"] : ["topic","list"]` — a no-op ternary | Reads as intentional at a glance |
-| `ros_nodes` returned duplicates from discovery races | Only visible with a live graph |
+| `list_ros_nodes` returned duplicates from discovery races | Only visible with a live graph |
 | Kill contract resolved the promise *before* sending SIGINT | Only visible with per-case orphan checks |
 
 **Corollaries:**

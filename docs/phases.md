@@ -13,7 +13,7 @@ criterion is validated against a live system, not merely implemented.
 Establish a working MCP server skeleton with the Linux execution layer.
 
 **Delivered:** TypeScript project, stdio transport, `JobManager` process
-registry, `workbench_shell` with blocklist and truncation, background job tools.
+registry, `run_command` with blocklist and truncation, background job tools.
 Six tools total. Verified over real MCP `tools/list`.
 
 **Key decision:** rejected forking Desktop Commander MCP. It carries large
@@ -22,7 +22,7 @@ Borrowed two patterns instead — persistent process management and zod-schema
 tool registration.
 
 **Exit criteria:** ✅ compiles clean · ✅ `tools/list` returns all tools ·
-✅ `workbench_shell` executes for real · ✅ ROS tools degrade gracefully when ROS absent
+✅ `run_command` executes for real · ✅ ROS tools degrade gracefully when ROS absent
 
 ---
 
@@ -35,12 +35,12 @@ ROS 2 Lyrical Luth, WSLg for GUI. (Initially assumed Ubuntu 24.04 / ROS Jazzy �
 wrong, corrected during setup.)
 
 **Three real bugs found and fixed:**
-1. `ros_topic` passed `messageType` as a positional to `ros2 topic echo`,
+1. `sample_ros_topic` passed `messageType` as a positional to `ros2 topic echo`,
    failing hard on any stale type. turtlesim's messages had moved to
    `turtlesim_msgs` in Lyrical, so the documented type errored. Fix: drop the
    positional entirely; echo auto-resolves.
-2. `ros_nodes` returned duplicates from discovery races.
-3. `ros_graph` had a no-op ternary — `include_hidden=true` never actually
+2. `list_ros_nodes` returned duplicates from discovery races.
+3. `get_ros_graph` had a no-op ternary — `include_hidden=true` never actually
    added the flag.
 
 **Exit criteria:** ✅ all five ROS tools exercised against live turtlesim ·
@@ -52,17 +52,17 @@ wrong, corrected during setup.)
 
 Make the tools compose into a real edit → build → read error → fix cycle.
 
-**Delivered:** `workspace_edit` (exact search/replace, refuses zero and ambiguous
+**Delivered:** `patch_file` (exact search/replace, refuses zero and ambiguous
 matches, byte-identical on refusal, literal insertion with no regex expansion);
-`ros_pkg_new`; `ros_build` returning real compiler errors.
-Then `ros_topic` rewritten to use one persistent subscription instead of
+`create_ros_package`; `build_ros_workspace` returning real compiler errors.
+Then `sample_ros_topic` rewritten to use one persistent subscription instead of
 N cold starts — 20 messages in 1.5s versus ~1s startup *per message* previously.
 
 **Validation caught a race:** the kill contract resolved the promise before
 sending SIGINT. Fixed so "tool returned" implies "process is gone."
 
 **Exit criteria:** ✅ full loop validated with a genuine gcc error ·
-✅ `workspace_edit` all six cases verified on disk · ✅ zero orphaned processes ·
+✅ `patch_file` all six cases verified on disk · ✅ zero orphaned processes ·
 ✅ MCP round-trip re-verified
 
 ---
@@ -111,7 +111,7 @@ Per `docs/sandboxing.md`:
 - Workbench container (`ubuntu:24.04`) for the Linux lane via `docker exec`
 - Workspace bind-mounted at the **same absolute path** inside and out
 - Build container (OSRF `ros:<distro>`) with `--network=none`
-- `workspace_edit` host-side with a path allowlist equal to the mount
+- `patch_file` host-side with a path allowlist equal to the mount
 - ROS introspection lane host-side in v1 (DDS doesn't survive Docker Desktop's VM)
 - `--memory` and `--pids-limit` set
 - Fail closed with no Docker; default-on for bundle installs
@@ -122,10 +122,10 @@ session-labelled container cleanup, and — post-incident — a workspace-root
 hard-refusal with a multi-repo scope warning surfaced in tool results
 (0.4.2/0.4.3).
 
-**Resolved (0.4.4 / 0.4.5):** the `ros_build` containment gap — it was
+**Resolved (0.4.4 / 0.4.5):** the `build_ros_workspace` containment gap — it was
 the one path argument skipping `isInsideWorkspace`, so a Windows host-side build
 could execute CMake from any directory — is closed. `workspace_path` is now
-gated like `workspace_edit` / `ros_pkg_new` (with `allowRoot`, since building
+gated like `patch_file` / `create_ros_package` (with `allowRoot`, since building
 the workspace root is the normal colcon flow). 0.4.5 additionally translates
 model-supplied POSIX paths to host-addressable form BEFORE the gate, closing a
 Windows-wide hole where a container-native path (`/home/...`) failed to resolve
@@ -199,7 +199,7 @@ is actually live.
 **Self-deception risks named:** the distro criterion held only for the build
 lane (now rewritten); CI exists but has never run — an unexecuted suite
 prevents no regressions; every validation so far was by the author on the
-author's machine; and the `ros_build` containment gap (4.1 open
+author's machine; and the `build_ros_workspace` containment gap (4.1 open
 finding) surfaced only because live verification deliberately targeted a
 directory outside the configured workspace.
 

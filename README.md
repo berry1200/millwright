@@ -163,22 +163,49 @@ older server running with the *previous, broader* scope. (Observed in
 development: one server ran ~15 hours across three workspace changes and two
 version installs without ever picking them up.)
 
-After changing any setting, **restart the server** — toggle the extension off
-and on in **Settings → Extensions**, or restart Claude Desktop.
+After changing any setting, **restart the server** — but note that **toggling
+the extension Off/On in Settings → Extensions is often NOT enough**: in practice
+it can leave the previous `node` process running. What reliably restarts it:
+**fully quit Claude Desktop** (system tray / menu → Quit, not just closing the
+window) and reopen. If a stale server persists, kill the orphaned process —
+Task Manager → end the `node` process, or in WSL `pkill -f dist/index.js`. Even
+*installing a new version* does not restart a running server (observed: one ran
+~15 hours across three workspace changes and two version installs; and a 0.5.0
+install served stale 0.4.x until a full quit).
 
-**Confirm which config is actually live** with the refusal readout: ask
-Millwright to edit a file you *know* is outside your intended workspace (e.g. a
-file in another project). The refusal names the workspace the running server
-really has:
+**Confirm which build is actually live** — every tool result carries
+`millwright_version`, so a single call settles it: if the version isn't the one
+you just installed, the running process is stale — restart it (full quit). The
+older refusal readout still confirms the live *workspace scope*: ask Millwright
+to edit a file you *know* is outside your intended workspace; the refusal names
+the workspace the running server really has:
 
 ```
 refused: '…' is outside the configured workspace (⟵ this is the live workspace_dir).
 ```
 
-If that parenthesized path isn't the folder you just set, the server is stale —
-restart it. On Windows, give the edit target as a WSL UNC path
-(`\\wsl.localhost\<distro>\home\…`), **not** a POSIX `/home/…` path: a POSIX
-path fails host-side with a generic "path not found" before the guard runs.
+If that path isn't the folder you set, the server is stale. On Windows, give the
+edit target as a WSL UNC path (`\\wsl.localhost\<distro>\home\…`), not a POSIX
+`/home/…` path (a POSIX path fails host-side with a generic "path not found").
+
+### Two surfaces, two instances (Desktop vs Claude Code)
+
+If you run **both** Claude Desktop and Claude Code, each has its **own**
+Millwright instance with a **separate config and lifecycle** — they don't share
+state, and updating one does not update the other:
+
+- **Claude Desktop** runs the **installed `.mcpb`** copy. Updating it means
+  install the new `.mcpb` *and* fully restart (above).
+- **Claude Code** runs `node <path>/dist/index.js` **directly** (see Manual
+  config below), so it tracks your **dist build**: `npm run build`, let it
+  reconnect, and it's current — no `.mcpb`, no reinstall. Installing a `.mcpb`
+  does **nothing** for Claude Code.
+
+**Which one am I talking to?** Check `millwright_version` in any tool result and
+note the client. To see how Claude Code's Millwright is wired, run
+`claude mcp list` in a Claude Code terminal — the config location varies and may
+not be in the obvious files, so `claude mcp list` is authoritative; edit it as
+the `mcpServers` entry shown under Manual config.
 
 ### First prompts: name the extension
 
