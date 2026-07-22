@@ -719,3 +719,32 @@ The .mcpb installs and runs, but do NOT hand this to strangers yet:
   Don't let compiled-but-unrun code get described as "working."
 - When you make an architecture-affecting decision, add it to "Key
   design decisions" above so it isn't relitigated later.
+
+## Engineering lessons (hard-won — read before CI / sandbox work)
+
+- **Error-handling paths need their own tests.** A broken error handler fails
+  *silently by definition*: it only runs once something else has already gone
+  wrong, so if the handler is also wrong, nothing tells you — the failure just
+  looks like a different failure. Force the error and assert the handler fired
+  with the right message and exit code. Concrete miss (2026-07-22): the
+  adversarial harness's fixture-failure reporter was first written as
+  `process.on("unhandledRejection", …)`, which does **not** fire for a top-level
+  `await` rejection — so it never ran, and a broken fixture still dumped a raw
+  stack trace with a generic exit 1. A deliberate forced-error test caught it and
+  it was replaced with `async main()` + `try/catch` (→ `SETUP FAILED`, exit 2).
+  Without that test, CI would have *looked* fixed while staying ambiguous.
+
+- **uid-mapping blind spot: root-owned-file bugs are invisible on Docker
+  Desktop.** Docker Desktop (Windows/macOS) runs the engine in a Linux VM that
+  uid-maps bind mounts, so files a container creates *as root* appear owned by
+  **you** on the host. Under **native Docker** (GitHub hosted runners, native
+  Linux) the daemon is genuinely root, so those same files are root-owned and
+  unprivileged code can't touch them. This class keeps recurring — root-owned
+  build artifacts (fixed with host `uid:gid` in `buildRunInvocation`), and the
+  root-owned workspace mount that broke the symlink CI scenario (fixed by
+  pre-creating the workspace as the user before any bind mount touches it). It is
+  a systematic blind spot, not coincidence: **anything invisible locally because
+  of uid-mapping will surface under native Docker.** Expect it directly in
+  Phase 5's native-Linux breadth validation. Rule: whenever a container creates
+  or writes host files, verify ownership under native Docker — never trust the
+  Docker Desktop view.
