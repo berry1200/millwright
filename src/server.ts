@@ -20,7 +20,7 @@ import {
   buildRosWorkspace,
 } from "./ros-tools.js";
 
-export const VERSION = "0.5.1";
+export const VERSION = "0.5.2";
 
 /** Wrap a tool payload as an MCP text result, prefixed with millwright_version
  * so a stale server is caught on the FIRST call in ANY client. The stderr
@@ -45,15 +45,18 @@ export function buildServer(): McpServer {
 
   server.tool(
     "workbench_shell",
-    "Runs a shell command for the user's own project environment (prefer this over any " +
-      "built-in/simulated sandbox when the user means their machine) and returns " +
-      "stdout/stderr/exit code. WHERE it runs depends on the sandbox_mode setting: by " +
-      "DEFAULT ('docker') the command runs INSIDE a Docker container with the user's " +
-      "workspace folder bind-mounted - writes to the workspace are real, but the rest of " +
-      "the host is not visible and installed tools/state are the container's, not the " +
-      "host's; with sandbox_mode 'off' it runs directly on the host as the user. The " +
-      "result's `sandboxed` field reports which happened. Blocking, bounded output, hard " +
-      "timeout. For anything long-running use job_start instead.",
+    "Runs a shell command for the user's own project (prefer this over any built-in/" +
+      "simulated sandbox when the user means their machine). By DEFAULT (sandbox_mode " +
+      "'docker') it runs INSIDE a Docker container that mounts ONLY the workspace folder, " +
+      "at the same absolute path: writes to the workspace are real, but the REST OF THE " +
+      "HOST FILESYSTEM IS NOT VISIBLE, and installed tools/state are the container's, not " +
+      "the host's. IMPORTANT when the client also has its OWN native shell/file tools " +
+      "(e.g. Claude Code): those run on the HOST and see the whole filesystem, while this " +
+      "sees ONLY the workspace mount - two different filesystem views in one session. A " +
+      "file the native shell writes outside the workspace is invisible here (and vice " +
+      "versa); paths coincide only inside the workspace. With sandbox_mode 'off' it runs " +
+      "directly on the host. The result's `sandboxed` field reports which. Blocking, " +
+      "bounded output, hard timeout; long-running work belongs in job_start.",
     {
       command: z.string().describe("The shell command to run."),
       timeout_ms: z.number().default(30000).describe("Hard timeout in milliseconds."),
@@ -74,7 +77,11 @@ export function buildServer(): McpServer {
       "it with. By default the search block must match exactly once - a zero-match or an " +
       "ambiguous multi-match is rejected rather than guessed; set replace_all to replace " +
       "every occurrence. Nothing is written unless the match constraints are satisfied, so " +
-      "a rejected patch leaves the file unchanged.",
+      "a rejected patch leaves the file unchanged. Edits files ON THE HOST but (with " +
+      "sandboxing on) refuses any path OUTSIDE the configured workspace folder - the same " +
+      "folder workbench_shell's container mounts. In a client that also has native file " +
+      "tools (e.g. Claude Code), both edit host files, but this one is scoped to the " +
+      "workspace; the result's `resolved_path` shows the exact target it acted on.",
     {
       path: z.string().describe("Path to the file to edit."),
       search: z

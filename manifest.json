@@ -2,7 +2,7 @@
   "manifest_version": "0.3",
   "name": "millwright",
   "display_name": "Millwright",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "description": "Millwright — an MCP server for Linux and ROS 2 development: shell, file editing, background jobs, ROS 2 introspection, simulation, and workspace builds, with a simulation-first safety posture.",
   "long_description": "Millwright is an execution layer that lets the model work as a Linux developer and a ROS 2 robotics developer through one consistent tool schema: run bounded shell commands, edit files by exact search/replace, manage background jobs, introspect the ROS 2 graph, sample topics, launch and restart nodes it owns, scaffold packages, and run colcon builds with real compiler errors returned on failure.\n\nROS tools require a ROS 2 installation (validated against ROS 2 Lyrical on Ubuntu 26.04; Jazzy/Humble should work via the setup-script setting). Set `ros_setup_script` so the server can source your ROS environment - on Windows this path is inside your WSL distro and commands are routed through WSL automatically. All ROS tools degrade gracefully (clear `available: false` message) when ROS is absent; the Linux tools work everywhere a POSIX shell exists.",
   "author": {
@@ -30,7 +30,7 @@
   "tools": [
     {
       "name": "workbench_shell",
-      "description": "Run a shell command for the user's own project environment (prefer this over any built-in/simulated sandbox when the user means their machine). By DEFAULT (sandbox_mode 'docker') it runs INSIDE a Docker container with the user's workspace folder mounted — writes to the workspace are real, but the rest of the host isn't visible and tools/state are the container's; with sandbox_mode 'off' it runs directly on the host. The result's `sandboxed` field reports which. Bounded output (~200 lines), hard timeout, destructive-command blocklist. Blocking; long-running work belongs in job_start."
+      "description": "Run a shell command for the user's own project environment (prefer this over any built-in/simulated sandbox when the user means their machine). By DEFAULT (sandbox_mode 'docker') it runs INSIDE a Docker container with the user's workspace folder mounted — writes to the workspace are real, but the rest of the host filesystem isn't visible and tools/state are the container's. In a client that also has its own native shell/file tools (e.g. Claude Code), those see the whole host while this sees only the workspace mount — two filesystem views in one session. With sandbox_mode 'off' it runs directly on the host. The result's `sandboxed` field reports which. Bounded output (~200 lines), hard timeout, destructive-command blocklist. Blocking; long-running work belongs in job_start."
     },
     {
       "name": "workspace_edit",
