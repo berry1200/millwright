@@ -16,7 +16,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
-          node-version: "20"
+          node-version: "24"
       - run: npm ci
       - run: npm run build
       - name: Unit tests (node:test)
@@ -34,7 +34,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
-          node-version: "20"
+          node-version: "24"
       - run: npm ci
       - run: npm run build
       - name: Sandbox adversarial tests (Docker)
@@ -53,7 +53,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
-          node-version: "20"
+          node-version: "24"
       - run: npm ci
       - name: ROS lane tests (requires sourced ROS 2 + turtlesim)
         run: npm run test:ros
