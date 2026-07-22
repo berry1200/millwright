@@ -283,7 +283,7 @@ appear and zero old names survive. Author re-runs the four guard checks against
 the new names after a fresh install (renaming shouldn't change guard behaviour,
 but that's an assumption until installed).
 
-### 5.1 Claude Code profile (clientInfo) — ergonomics, after 5.0 ⬜
+### 5.1 Claude Code profile (clientInfo) — ergonomics, after 5.0 ✅ done 2026-07-22 (0.5.2)
 MCP `initialize` carries `clientInfo` (name/version), currently ignored. In
 Claude Code, Millwright's shell/file tools overlap with native ones that run on
 the HOST while ours run in a CONTAINER — same session, two filesystems, the
