@@ -6,7 +6,15 @@
 set -uo pipefail
 cd "$(dirname "$0")"
 
-command -v docker >/dev/null || { echo "docker not found - skipping Tier-2"; exit 2; }
+# Probe that Docker WORKS, not merely that the CLI is on PATH: Docker Desktop's
+# WSL integration installs a shim that stays on PATH even when the daemon is
+# unreachable, so `command -v docker` passed while every container command failed
+# - producing a full run of vacuous results. Query the server version instead.
+docker version --format '{{.Server.Version}}' >/dev/null 2>&1 || {
+  echo "Docker daemon not reachable (stopped, or Docker Desktop WSL integration dropped) - aborting Tier-2."
+  echo "On a hosted runner this correctly fails the job; locally, start Docker Desktop / re-enable WSL integration."
+  exit 2
+}
 docker pull -q ubuntu:24.04 >/dev/null
 
 rc=0

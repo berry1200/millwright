@@ -20,6 +20,23 @@ const { patchFile } = await import("./dist/file-tools.js");
 
 const WS = process.env.WORKSPACE_DIR || "/tmp/mw_ws";
 
+// Preflight: Docker Desktop's WSL integration drops intermittently. If the
+// sandbox is meant to be on but the workbench doesn't actually run, ABORT LOUDLY
+// (exit 2) rather than run assertions against a dead sandbox and emit a page of
+// vacuous PASS/FAIL. A CLI-presence check ("command -v docker") is not enough:
+// the shim stays on PATH when the daemon is unreachable, so we probe that a
+// command REALLY executed in the workbench.
+if ((process.env.SANDBOX_MODE || "docker") !== "off") {
+  const smoke = await runCommand("echo __mw_smoke__");
+  if (smoke.sandbox_available === false || !/__mw_smoke__/.test(smoke.stdout || "")) {
+    console.error("\n**ABORT** sandbox not functioning: SANDBOX_MODE is on but the workbench did not run.");
+    console.error("  Likely Docker Desktop stopped or its WSL integration dropped.");
+    console.error("  smoke probe:", JSON.stringify(smoke).slice(0, 200));
+    console.error("  Refusing to run adversarial assertions against a dead sandbox.\n");
+    process.exit(2);
+  }
+}
+
 if (scenario === "traversal") {
   hr("patch_file path traversal (workspace = " + WS + ")");
   await mkdir(WS, { recursive: true });
