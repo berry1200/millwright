@@ -17,10 +17,16 @@ docker version --format '{{.Server.Version}}' >/dev/null 2>&1 || {
 }
 docker pull -q ubuntu:24.04 >/dev/null
 
+# Create the workspace dir up front, owned by THIS user, so a container bind
+# mount never creates it root-owned (see adversarial-harness.mjs for the full
+# rationale). Defense in depth alongside the harness's own mkdir.
+WS_DIR=/tmp/mw_ci
+mkdir -p "$WS_DIR"
+
 rc=0
 for s in traversal symlink escape pids memory cpus; do
   echo "################ adversarial: $s ################"
-  SANDBOX_MODE=docker WORKSPACE_DIR=/tmp/mw_ci node adversarial-harness.mjs "$s" || rc=1
+  SANDBOX_MODE=docker WORKSPACE_DIR="$WS_DIR" node adversarial-harness.mjs "$s" || rc=1
 done
 
 echo "################ cleanup ################"
