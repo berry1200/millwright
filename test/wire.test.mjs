@@ -75,3 +75,14 @@ test("wire: every tool result carries millwright_version matching package.json",
   assert.match(text, new RegExp(`"millwright_version":\\s*"${pkg.version.replace(/\./g, "\\.")}"`),
     `result must carry millwright_version=${pkg.version} (server.ts VERSION and package.json must agree)`);
 });
+
+test("wire: ros_nodes degrades gracefully when ROS is absent (Windows-no-WSL proxy)", async () => {
+  // With no ros_setup_script and ros2 not on PATH (the CI runner's state, and the
+  // config-unset simulation of a Windows host without WSL), a ROS tool must return
+  // a clean structured result, never throw. available:false is the degraded path.
+  const res = await rpc([{ id: 4, method: "tools/call", params: { name: "ros_nodes", arguments: {} } }]);
+  const text = res[4].content[0].text;
+  const obj = JSON.parse(text); // must be structured JSON, not a crash
+  assert.match(text, /"millwright_version"/);
+  if (obj.available === false) assert.ok(obj.message, "a degraded ROS result must carry a message");
+});

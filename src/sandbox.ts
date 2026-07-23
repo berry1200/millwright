@@ -220,8 +220,17 @@ export function workbenchExecInvocation(
   cwd?: string
 ): { cmd: string; args: string[]; clientTimeoutMs: number } {
   const secs = Math.max(1, Math.ceil(timeoutMs / 1000));
+  // Run the exec as the HOST user (not root) so files it writes into the mounted
+  // workspace are user-owned - otherwise a later host-side workspace_edit of a
+  // workbench-created file gets EACCES (confirmed live: the exec ran as uid 0 and
+  // files landed root-owned on the host, even on Docker Desktop with a WSL-path
+  // workspace). Same fix builds already use. HOME=/tmp because the host uid may
+  // not exist in the container's /etc/passwd. getuid is undefined on Windows node
+  // (no host uid to pass) - the exec stays root there (documented Windows gap).
+  const uidGid = typeof process.getuid === "function" ? `${process.getuid()}:${process.getgid!()}` : undefined;
   const args = [
     "exec",
+    ...(uidGid ? ["--user", uidGid, "-e", "HOME=/tmp"] : []),
     ...(cwd ? ["-w", cwd] : []),
     container,
     "timeout", "-k", "5", `${secs}s`,
@@ -243,6 +252,9 @@ export function jobRunInvocation(
 ): { cmd: string; args: string[]; containerName: string } {
   const ws = workspaceMountPath();
   const containerName = `millwright-job-${randomUUID().slice(0, 8)}`;
+  // Host user, not root (same rationale as workbenchExecInvocation): a job that
+  // writes into the workspace must leave user-owned files, not root-owned.
+  const uidGid = typeof process.getuid === "function" ? `${process.getuid()}:${process.getgid!()}` : undefined;
   const inv = dockerInvocation([
     "run", "--rm",
     "--init", // tini forwards signals to the real command and reaps zombies
@@ -251,6 +263,7 @@ export function jobRunInvocation(
     "--memory", MEMORY_LIMIT,
     "--pids-limit", PIDS_LIMIT,
     "--cpus", CPUS_LIMIT,
+    ...(uidGid ? ["--user", uidGid, "-e", "HOME=/tmp"] : []),
     ...(WORKBENCH_NETWORK === "none" ? ["--network", "none"] : []),
     ...(ws ? ["-v", `${ws}:${ws}`, "-w", ws] : []),
     WORKBENCH_IMAGE,

@@ -278,8 +278,12 @@ like anything else you'd paste into chat.
   an `ubuntu:24.04` workbench container (memory- and pid-limited) with only
   your workspace folder mounted; on Linux, `colcon` builds run in the official
   `ros:<distro>-ros-base` image with **no network**. File edits are confined
-  to the workspace. If Docker isn't available, these tools **fail closed**
-  with instructions rather than silently running unsandboxed. Set
+  to the workspace. The sandboxed shell and jobs run **as your user, not root**,
+  so files they create in the workspace stay yours (a later host-side edit won't
+  hit a permission wall) — the trade-off is that `apt`/system-package installs,
+  which need root, don't work inside the sandboxed shell (bake system deps into
+  an image, or use `sandbox_mode: off`). If Docker isn't available, these tools
+  **fail closed** with instructions rather than silently running unsandboxed. Set
   `sandbox_mode: off` to opt out. Full design: [`docs/sandboxing.md`](./docs/sandboxing.md).
 - **⚠️ Windows limitation**: `colcon` builds run on the host (inside WSL),
   not in a container — a hostile `CMakeLists.txt` executes with your user's

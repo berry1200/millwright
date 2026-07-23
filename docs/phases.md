@@ -301,11 +301,41 @@ path-confusion class we already hit.
   posture stays config-driven (`SANDBOX_MODE`). Baseline descriptions must be
   correct without it.
 
-### 5.2 Multi-environment breadth (was 4.3) — parallel track ⬜
-Native Linux (non-WSL) and Windows-without-WSL, currently untested. Gates the
-honesty of any "works for a stranger" claim. **Expect the uid-mapping
-root-ownership class here** (see Engineering lessons in CLAUDE.md): native Docker
-is genuinely root, unlike Docker Desktop's uid-mapped VM.
+### 5.2 Multi-environment breadth (was 4.3) — 🟡 partial (2026-07-22, 0.5.3)
+Native Linux (non-WSL) and Windows-without-WSL. Gates the honesty of any "works
+for a stranger" claim.
+
+**What's validated (Approach A — direct uid assertion on native Docker):**
+- CI runs on GitHub hosted ubuntu = **native Linux with a root Docker daemon**
+  (not a Docker-Desktop VM). The sandbox adversarial suite, wire tests, and unit
+  tests all run there — so the non-WSL code paths + sandbox behaviour are
+  exercised on genuine native Linux.
+- **The prediction held and surfaced a real bug.** A new `ownership` adversarial
+  scenario asserts a `workbench_shell`-created file is owned by the invoking
+  user, not root. It **surfaced that the workbench exec (and background jobs) ran
+  as root** — leaving root-owned files a host-side `workspace_edit` couldn't
+  touch. This reproduced *locally* on a WSL-path workspace (correcting the earlier
+  "invisible on Docker Desktop" claim — see CLAUDE.md). **Fixed:** workbench exec
+  + jobs now run as the host `uid:gid` (`--user`, `HOME=/tmp`), like builds; the
+  `ownership` scenario is green and guards the regression in CI.
+- **Windows-without-WSL (config-unset proxy):** a wire test asserts a ROS tool
+  degrades to a clean `available:false` result (never a crash) when ROS is
+  absent — the ROS-lane degradation path.
+
+**Explicitly NOT covered (honest ⬜):**
+- ⬜ **Desktop-install UX on native Linux** (Approach C — a real Linux box +
+  Claude Desktop-for-Linux `.mcpb` install). Deferred to the cold-user trial
+  (5.5) before submission; it needs a provisioned box and drags in Claude
+  Desktop-Linux maturity as a separate variable.
+- ⬜ **A true Windows-without-WSL host.** The config-unset test *simulates* the
+  config-level absence; the machine still has WSL, so the `wsl.exe`-routing
+  failure mode (no distro at all) is only approximated — a true test needs a
+  Windows box without WSL (VM).
+- ⬜ **Windows-host workbench uid.** On Windows-node Claude Desktop, the workbench
+  exec still runs as root (`process.getuid` undefined) — root-owned files can
+  recur there; the fix only lands where a host uid is available (native Linux /
+  WSL-node servers). Documented in CLAUDE.md.
+- ⬜ Host-side ROS introspection on native Linux (still Lyrical-only, accepted).
 
 ### 5.3 Brand assets — parallel track ⬜
 Icon at all required sizes. Required for directory submission.

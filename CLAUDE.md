@@ -739,17 +739,29 @@ The .mcpb installs and runs, but do NOT hand this to strangers yet:
   it was replaced with `async main()` + `try/catch` (→ `SETUP FAILED`, exit 2).
   Without that test, CI would have *looked* fixed while staying ambiguous.
 
-- **uid-mapping blind spot: root-owned-file bugs are invisible on Docker
-  Desktop.** Docker Desktop (Windows/macOS) runs the engine in a Linux VM that
-  uid-maps bind mounts, so files a container creates *as root* appear owned by
-  **you** on the host. Under **native Docker** (GitHub hosted runners, native
-  Linux) the daemon is genuinely root, so those same files are root-owned and
-  unprivileged code can't touch them. This class keeps recurring — root-owned
-  build artifacts (fixed with host `uid:gid` in `buildRunInvocation`), and the
-  root-owned workspace mount that broke the symlink CI scenario (fixed by
-  pre-creating the workspace as the user before any bind mount touches it). It is
-  a systematic blind spot, not coincidence: **anything invisible locally because
-  of uid-mapping will surface under native Docker.** Expect it directly in
-  Phase 5's native-Linux breadth validation. Rule: whenever a container creates
-  or writes host files, verify ownership under native Docker — never trust the
-  Docker Desktop view.
+- **Container-as-root writes root-owned host files — and it is NOT reliably
+  masked on Docker Desktop (correction, 2026-07-22).** A container process
+  running as root that writes into a bind-mounted workspace leaves **root-owned
+  files on the host**, which unprivileged host-side code (e.g. `workspace_edit`)
+  then can't touch (EACCES). An earlier version of this note claimed Docker
+  Desktop's VM uid-maps that away — **that is wrong for a WSL-path workspace**
+  (the file lands directly in the WSL filesystem, so root ownership is plainly
+  visible; confirmed by running `workbench_shell` — it executed as uid 0 and its
+  file showed `HOST-owner=root` on Docker Desktop). The uid-mapping masking
+  applies only to **Windows-path** mounts routed through the VM's 9p/virtiofs
+  layer. So the blind spot is *narrower* than recorded: for WSL-path and
+  native-Linux workspaces the bug is visible locally; only Windows-path mounts
+  hide it — which is why the build fix (`buildRunInvocation`) was made after
+  hitting EACCES *locally*, not on CI.
+  - **Fix pattern:** run the container as the host `uid:gid` (`--user` +
+    `HOME=/tmp`), so workspace files are user-owned. **Trade-off:** the container
+    then can't `apt`/system-install (root-only). Instances fixed: build artifacts
+    (`buildRunInvocation`), the symlink-scenario workspace dir (pre-create as
+    user), and `workbench_shell` + background jobs (`--user`, 0.5.3).
+  - **Remaining gap:** on **Windows-host** Claude Desktop the server is a Windows
+    node process where `process.getuid` is undefined, so the workbench exec still
+    runs as root there (no host uid to pass). Fixing that needs detecting the WSL
+    uid on Windows — deferred, documented.
+  - **Rule:** whenever a container writes host files, run it as the host user and
+    verify ownership on BOTH native Docker (CI) and a WSL-path workspace — the
+    `ownership` adversarial scenario now guards this.

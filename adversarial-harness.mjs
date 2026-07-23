@@ -184,7 +184,19 @@ message(FATAL_ERROR "PROBE net=\${NET} etc=\${ETC} tmp=\${TMP}")
     const still = await runCommand("echo container-still-responsive");
     console.log(`     host available MB before/after: ${freeBefore} -> ${freeAfter}`);
     const oomKilled = /oom_kill (\d+)/.exec(oom.stdout || "");
-    verdict(r.exitCode === 137 || (oomKilled && Number(oomKilled[1]) > 0), "attacker OOM-killed at the 2g cap (exit 137 / oom_kill>0)", `exit=${r.exitCode}`);
+    const filled = /filled=\d/.test(r.stdout || "");
+    // The cap "biting" can surface as an OOM-kill (137) OR, when malloc returns
+    // NULL at the limit and bash crashes handling it, a SIGSEGV (139) - both mean
+    // the bomb died AT the cap before completing. (139 became the common outcome
+    // once the workbench runs non-root, 0.5.3.) The property is CONTAINMENT: the
+    // bomb must have DIED from memory pressure and NOT completed. A timeout (124)
+    // means the allocator was too slow (a test flaw, not the cap); a clean
+    // completion (`filled=`) means the cap did not contain it - both must fail.
+    verdict(
+      !filled && (r.exitCode === 137 || r.exitCode === 139 || (oomKilled && Number(oomKilled[1]) > 0)),
+      "attacker killed at the 2g cap before completing (OOM 137 / alloc-fail 139 / oom_kill>0; not timeout, not completed)",
+      `exit=${r.exitCode} filled=${filled}`
+    );
     verdict(/still-responsive/.test(still.stdout || ""), "sandbox still usable after the bomb");
   } else if (scenario === "cpus") {
     hr("CPU spinner vs --cpus cap (host must stay responsive)");
@@ -209,6 +221,22 @@ message(FATAL_ERROR "PROBE net=\${NET} etc=\${ETC} tmp=\${TMP}")
     console.log(`     host cores=${cores}; container capped at --cpus 1; measured CPU=${cpu} (uncapped ~${Number(cores) * 100}%); host round-trip ${hostLatency}ms`);
     verdict(cpuNum > 0 && cpuNum <= 135, "CPU held near 1 core despite spinning all cores", `measured ${cpu}`);
     verdict(hostLatency < 2000, "host stayed responsive during the spinner", `round-trip ${hostLatency}ms`);
+  } else if (scenario === "ownership") {
+    hr("workbench-created files are owned by the invoking user, not root (uid-mapping)");
+    // The direct uid assertion. On native Docker (and Docker Desktop with a
+    // WSL-path workspace) a workbench exec running as root leaves root-owned
+    // files that a later host-side workspace_edit can't touch (EACCES). The fix
+    // runs the exec as the host uid; this proves it and guards the regression.
+    const myUid = (await pexec("bash", ["-c", "id -u"])).stdout.trim();
+    const probe = `${WS}/mw_ownership_probe`;
+    await pexec("bash", ["-c", `rm -f ${probe}`]);
+    const r = await runCommand(`touch ${probe} && echo exec-uid=$(id -u)`);
+    console.log("     " + (r.stdout || "").trim());
+    let hostUid = "(missing)";
+    try { hostUid = (await pexec("bash", ["-c", `stat -c %u ${probe}`])).stdout.trim(); } catch {}
+    console.log(`     invoking user uid=${myUid}; workbench-created file host-owner=${hostUid}`);
+    verdict(hostUid === myUid, "workbench file is user-owned on the host, not root", `owner=${hostUid} vs user=${myUid}`);
+    await pexec("bash", ["-c", `rm -f ${probe}`]);
   } else {
     console.error("unknown scenario:", scenario);
     process.exit(2);

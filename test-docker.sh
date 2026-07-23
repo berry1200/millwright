@@ -24,7 +24,7 @@ WS_DIR=/tmp/mw_ci
 mkdir -p "$WS_DIR"
 
 rc=0
-for s in traversal symlink escape pids memory cpus; do
+for s in traversal symlink escape ownership pids memory cpus; do
   echo "################ adversarial: $s ################"
   SANDBOX_MODE=docker WORKSPACE_DIR="$WS_DIR" node adversarial-harness.mjs "$s" || rc=1
 done
