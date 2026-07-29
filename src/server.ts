@@ -6,6 +6,7 @@ import { jobManager } from "./job-manager.js";
 import {
   sandboxEnabled,
   isDockerAvailable,
+  ensureHostUser,
   jobRunInvocation,
   SANDBOX_UNAVAILABLE_MSG,
   workspaceHardRefusal,
@@ -20,7 +21,7 @@ import {
   buildRosWorkspace,
 } from "./ros-tools.js";
 
-export const VERSION = "0.5.3";
+export const VERSION = "0.5.4";
 
 /** Wrap a tool payload as an MCP text result, prefixed with millwright_version
  * so a stale server is caught on the FIRST call in ANY client. The stderr
@@ -125,6 +126,8 @@ export function buildServer(): McpServer {
         if (!(await isDockerAvailable())) {
           return reply({ sandbox_available: false, message: SANDBOX_UNAVAILABLE_MSG });
         }
+        const user = await ensureHostUser();
+        if (!user.ok) return reply({ sandbox_available: false, message: user.message });
         const inv = jobRunInvocation(command, args);
         const job = jobManager.start(inv.cmd, inv.args, name, undefined, inv.containerName);
         return reply({ job_id: job.id, status: job.status, sandboxed: true });

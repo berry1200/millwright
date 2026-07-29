@@ -758,10 +758,15 @@ The .mcpb installs and runs, but do NOT hand this to strangers yet:
     then can't `apt`/system-install (root-only). Instances fixed: build artifacts
     (`buildRunInvocation`), the symlink-scenario workspace dir (pre-create as
     user), and `workbench_shell` + background jobs (`--user`, 0.5.3).
-  - **Remaining gap:** on **Windows-host** Claude Desktop the server is a Windows
-    node process where `process.getuid` is undefined, so the workbench exec still
-    runs as root there (no host uid to pass). Fixing that needs detecting the WSL
-    uid on Windows — deferred, documented.
+  - **Windows-host gap — CLOSED (0.5.4):** on Windows the server is a Windows node
+    process where `process.getuid` is undefined; it now detects the WSL user id via
+    `wsl.exe -d <distro> id` (cached per session) and passes it as `--user`, and
+    **fails closed** — refuses the sandboxed exec/jobs — if it can't get a numeric
+    uid (bad distro, wsl.exe down, non-numeric/UTF-16 output; a bad distro even
+    exits 0, so we validate output not exit code). Never silently root. Proven on a
+    real Windows-node server: `workbench_shell` wrote a uid-1000 file and a
+    host-side `workspace_edit` of it applied (was EPERM before). `parseWslIdOutput`
+    unit-tests the failure modes.
   - **Rule:** whenever a container writes host files, run it as the host user and
     verify ownership on BOTH native Docker (CI) and a WSL-path workspace — the
     `ownership` adversarial scenario now guards this.

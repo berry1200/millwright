@@ -51,6 +51,68 @@ export function dockerInvocation(dockerArgs: string[]): { cmd: string; args: str
     : { cmd: "docker", args: dockerArgs };
 }
 
+// ---- host user identity for containers (uid-mapping) -----------------------
+// Containers must run as the invoking user, not root, or files they write into
+// the mounted workspace are root-owned and a later host-side workspace_edit
+// can't touch them (EPERM). On POSIX the host uid is process.getuid(). On
+// Windows the server runs Windows-side but the workspace + docker live in WSL,
+// where process.getuid() is undefined - so ask the distro directly via
+// `wsl.exe -d <distro> id`. If a numeric uid can't be obtained we FAIL CLOSED
+// (refuse the sandboxed exec) rather than silently run as root: a refusal the
+// user can act on beats a root-owned file they can't edit later.
+let hostUidGidCache: string | null | undefined; // undefined=uncomputed, null=unresolvable, string="uid:gid"
+
+/** Parse `id -u; id -g` output into "uid:gid", or null if it isn't two numbers.
+ * Robust to CRLF, extra whitespace, and UTF-16 error text (null bytes stripped)
+ * - a bad `wsl_distro` prints an error yet exits 0, so we trust OUTPUT not the
+ * exit code. Pure + exported so the failure modes are unit-tested. */
+export function parseWslIdOutput(stdout: string): string | null {
+  const parts = stdout.replace(/\0/g, "").trim().split(/\s+/);
+  return /^\d+$/.test(parts[0] ?? "") && /^\d+$/.test(parts[1] ?? "") ? `${parts[0]}:${parts[1]}` : null;
+}
+
+function hostUidFailMsg(reason: string): string {
+  return (
+    `refused (fail closed): couldn't determine your user id for the sandbox, so running the ` +
+    `sandboxed shell/jobs would create root-owned files in your workspace you can't edit afterward ` +
+    `(EPERM). ${reason} Fix: make sure the 'WSL distro' setting names the distro your workspace ` +
+    `lives in and that WSL is running, or set sandbox_mode to 'off'.`
+  );
+}
+
+export async function ensureHostUser(): Promise<{ ok: true } | { ok: false; message: string }> {
+  if (hostUidGidCache === undefined) {
+    if (!IS_WINDOWS) {
+      hostUidGidCache =
+        typeof process.getuid === "function" ? `${process.getuid()}:${process.getgid!()}` : null;
+    } else {
+      try {
+        const { stdout } = await execFileAsync(
+          "wsl.exe",
+          ["-d", WSL_DISTRO, "sh", "-c", "id -u; id -g"],
+          { timeout: 10000 }
+        );
+        hostUidGidCache = parseWslIdOutput(stdout);
+      } catch {
+        hostUidGidCache = null;
+      }
+    }
+  }
+  if (hostUidGidCache) return { ok: true };
+  return {
+    ok: false,
+    message: hostUidFailMsg(
+      IS_WINDOWS ? `(\`wsl.exe -d ${WSL_DISTRO} id\` returned no numeric uid).` : "(process.getuid unavailable)."
+    ),
+  };
+}
+
+/** Cached "uid:gid" for `--user`, or undefined. Callers gate on ensureHostUser()
+ * first, so a container is never built while this is unresolved. */
+export function cachedHostUidGid(): string | undefined {
+  return typeof hostUidGidCache === "string" ? hostUidGidCache : undefined;
+}
+
 /** A Windows file picker hands back \\wsl.localhost\<distro>\home\x for a WSL
  * directory; docker (running inside WSL) needs /home/x. Accept both. */
 export function workspaceMountPath(): string | undefined {
@@ -170,6 +232,10 @@ export type SandboxGate = { ok: true; container: string } | { ok: false; message
 /** Lazily creates (or verifies) the session's workbench container. */
 export async function ensureWorkbench(): Promise<SandboxGate> {
   if (!(await isDockerAvailable())) return { ok: false, message: SANDBOX_UNAVAILABLE_MSG };
+  // Resolve the host uid BEFORE creating/using the workbench - fail closed if we
+  // can't, so the exec never falls back to root and writes root-owned files.
+  const user = await ensureHostUser();
+  if (!user.ok) return { ok: false, message: user.message };
   if (workbenchStarted) {
     try {
       const inv = dockerInvocation(["inspect", "-f", "{{.State.Running}}", workbenchName]);
@@ -221,13 +287,12 @@ export function workbenchExecInvocation(
 ): { cmd: string; args: string[]; clientTimeoutMs: number } {
   const secs = Math.max(1, Math.ceil(timeoutMs / 1000));
   // Run the exec as the HOST user (not root) so files it writes into the mounted
-  // workspace are user-owned - otherwise a later host-side workspace_edit of a
-  // workbench-created file gets EACCES (confirmed live: the exec ran as uid 0 and
-  // files landed root-owned on the host, even on Docker Desktop with a WSL-path
-  // workspace). Same fix builds already use. HOME=/tmp because the host uid may
-  // not exist in the container's /etc/passwd. getuid is undefined on Windows node
-  // (no host uid to pass) - the exec stays root there (documented Windows gap).
-  const uidGid = typeof process.getuid === "function" ? `${process.getuid()}:${process.getgid!()}` : undefined;
+  // workspace are user-owned - otherwise a later host-side workspace_edit gets
+  // EPERM. cachedHostUidGid() is the POSIX uid or, on Windows, the WSL uid
+  // resolved by ensureHostUser() (the caller gates on it and fails closed if it
+  // can't be resolved, so this is no longer root on Windows). HOME=/tmp because
+  // the host uid may not exist in the container's /etc/passwd.
+  const uidGid = cachedHostUidGid();
   const args = [
     "exec",
     ...(uidGid ? ["--user", uidGid, "-e", "HOME=/tmp"] : []),
@@ -253,8 +318,9 @@ export function jobRunInvocation(
   const ws = workspaceMountPath();
   const containerName = `millwright-job-${randomUUID().slice(0, 8)}`;
   // Host user, not root (same rationale as workbenchExecInvocation): a job that
-  // writes into the workspace must leave user-owned files, not root-owned.
-  const uidGid = typeof process.getuid === "function" ? `${process.getuid()}:${process.getgid!()}` : undefined;
+  // writes into the workspace must leave user-owned files. cachedHostUidGid() is
+  // resolved by ensureHostUser() before job_start reaches here (fail-closed).
+  const uidGid = cachedHostUidGid();
   const inv = dockerInvocation([
     "run", "--rm",
     "--init", // tini forwards signals to the real command and reaps zombies

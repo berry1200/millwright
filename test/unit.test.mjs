@@ -12,7 +12,7 @@ import { pathToFileURL } from "node:url";
 
 import { isCommandBlocked, truncateOutput } from "../dist/shell-tools.js";
 import { patchFile } from "../dist/file-tools.js";
-import { isDangerousWorkspaceRoot, resolveCandidatePathFor, toWslPosix } from "../dist/sandbox.js";
+import { isDangerousWorkspaceRoot, resolveCandidatePathFor, toWslPosix, parseWslIdOutput } from "../dist/sandbox.js";
 
 test("blocklist blocks catastrophic rm/mkfs/dd/forkbomb", () => {
   for (const c of [
@@ -209,6 +209,19 @@ test("toWslPosix: UNC->/, drive->/mnt, POSIX passthrough (idempotent on Linux)",
   assert.equal(toWslPosix("\\\\wsl.localhost\\Ubuntu\\home\\b\\x"), "/home/b/x");
   assert.equal(toWslPosix("C:\\Users\\me\\p"), "/mnt/c/Users/me/p");
   assert.equal(toWslPosix("/home/b/x"), "/home/b/x");
+});
+
+test("parseWslIdOutput: numeric -> uid:gid; garbage/partial/error -> null (fail-closed)", () => {
+  assert.equal(parseWslIdOutput("1000\n1000\n"), "1000:1000");
+  assert.equal(parseWslIdOutput("1000\r\n1000\r\n"), "1000:1000"); // CRLF from wsl.exe
+  assert.equal(parseWslIdOutput("  1001 1001  "), "1001:1001");
+  // UTF-16 output (null bytes) must be tolerated, not misread:
+  assert.equal(parseWslIdOutput("1\x000\x000\x000\n1\x000\x000\x000\n"), "1000:1000");
+  // failure modes -> null -> caller fails closed:
+  assert.equal(parseWslIdOutput("There is no distribution with the supplied name."), null);
+  assert.equal(parseWslIdOutput(""), null);
+  assert.equal(parseWslIdOutput("1000\n"), null); // gid missing
+  assert.equal(parseWslIdOutput("abc def"), null);
 });
 
 test("translate-then-gate: a .. path that escapes the workspace is REFUSED (order matters)", () => {

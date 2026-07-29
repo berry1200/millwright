@@ -331,10 +331,12 @@ for a stranger" claim.
   config-level absence; the machine still has WSL, so the `wsl.exe`-routing
   failure mode (no distro at all) is only approximated — a true test needs a
   Windows box without WSL (VM).
-- ⬜ **Windows-host workbench uid.** On Windows-node Claude Desktop, the workbench
-  exec still runs as root (`process.getuid` undefined) — root-owned files can
-  recur there; the fix only lands where a host uid is available (native Linux /
-  WSL-node servers). Documented in CLAUDE.md.
+- ✅ **Windows-host workbench uid (0.5.4).** The Windows workbench exec no longer
+  runs as root: it detects the WSL uid via `wsl.exe -d <distro> id` and passes
+  `--user`, **failing closed** if it can't get a numeric uid (validates output, not
+  the exit code — a bad distro exits 0). Proven on a real Windows-node server
+  (`workbench_shell` → uid-1000 file; host-side `workspace_edit` applied — was
+  EPERM). Failure modes unit-tested (`parseWslIdOutput`).
 - ⬜ Host-side ROS introspection on native Linux (still Lyrical-only, accepted).
 
 ### 5.3 Brand assets — parallel track ⬜
