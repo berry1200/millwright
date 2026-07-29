@@ -107,6 +107,16 @@ Docker Desktop with WSL integration enabled for your distro. Seeing "Docker is
 not reachable" on a fresh install is the sandbox working as designed, not a
 bug — start Docker, or knowingly set Sandbox mode to `off`.
 
+> **Windows gotcha — intermittent "Docker is not reachable" when Docker is
+> running:** Docker Desktop's WSL integration is *per-distro*. If your ROS distro
+> isn't Docker's *default* WSL distro, its integration toggle can silently be off
+> even while `docker` works fine from the default distro, so Millwright's calls
+> (routed through *your* distro via `wsl.exe`) fail. Fix: Docker Desktop →
+> Settings → Resources → WSL integration → enable your distro (e.g. `Ubuntu`)
+> under "Enable integration with additional distros," then Apply & Restart. This
+> presents as flaky/session-to-session failures, not a clean "off," which is what
+> makes it hard to spot.
+
 Build the bundle and install it with one click — no JSON editing:
 
 ```bash

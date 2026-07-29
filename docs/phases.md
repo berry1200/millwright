@@ -3,8 +3,8 @@
 Each phase has explicit **exit criteria**. A phase is not complete until every
 criterion is validated against a live system, not merely implemented.
 
-**Current position: Phase 4 (Hardening) COMPLETE (2026-07-21) — all five exit criteria met, CI green on GitHub. Deferred sub-items 4.2/4.3 do not gate the phase; see verdict. Phase 5 not started.**
-**Last updated:** 2026-07-21
+**Current position: Phase 5 (Distribution) — code-complete, provisioning-gated. Every engineering track is done and verified live (rename, Claude Code profile, version-in-results, multi-env breadth with the whole root-ownership class closed, fail-closed on all four instances). What remains is not code: a design asset (icon), a hosting decision (privacy URL), and a real box + real tester (cold trial → submission). CI green on GitHub through `9e64a01` (0.5.4). See the Phase 5 status pass at the end of this file.**
+**Last updated:** 2026-07-29
 
 ---
 
@@ -334,25 +334,87 @@ for a stranger" claim.
 - ✅ **Windows-host workbench uid (0.5.4).** The Windows workbench exec no longer
   runs as root: it detects the WSL uid via `wsl.exe -d <distro> id` and passes
   `--user`, **failing closed** if it can't get a numeric uid (validates output, not
-  the exit code — a bad distro exits 0). Proven on a real Windows-node server
-  (`workbench_shell` → uid-1000 file; host-side `workspace_edit` applied — was
-  EPERM). Failure modes unit-tested (`parseWslIdOutput`).
+  the exit code — a bad distro exits 0). Proven first on a real Windows-node
+  server (`workbench_shell` → uid-1000 file; host-side `workspace_edit` applied —
+  was EPERM), then **confirmed live through the installed Claude Desktop extension**
+  (0.5.4, full quit): `workbench_shell` created `uidtest.txt` owned by `ubuntu` not
+  root, `workspace_edit` returned `"applied": true` — the 0.5.3 EPERM is gone.
+  Failure modes unit-tested (`parseWslIdOutput`); CI green through `9e64a01`
+  (#10, 2m18s). **The root-ownership class is now fully closed across all four
+  instances** — build artifacts, native-Linux workspace files, WSL-path workspace
+  files, and Windows-host workspace files — each fixed and guarded by the permanent
+  `ownership` scenario against regression.
 - ⬜ Host-side ROS introspection on native Linux (still Lyrical-only, accepted).
 
-### 5.3 Brand assets — parallel track ⬜
-Icon at all required sizes. Required for directory submission.
+### 5.3 Brand assets — parallel track ⬜ (asset-gated, not code-gated)
+Icon at all required sizes. Required for directory submission. Direction chosen
+(monoline node-chevron); to be produced in Claude Design as a separate,
+non-code task. No engineering dependency — does not block anything else.
 
-### 5.4 Hosted privacy-policy URL — parallel track ⬜
-Required for directory review.
+### 5.4 Hosted privacy-policy URL — parallel track ⬜ (approach chosen, not yet live)
+Required for directory review. **Approach chosen: GitHub Pages from a dedicated
+`/site` folder** (kept separate from `/docs` so the internal phase notes, incident
+records, and memory never get published). `site/index.html` is scaffolded with
+**placeholder** text (commit `96b17b6`, 2026-07-29). Remaining, all
+non-engineering: (1) write the real policy text into `site/index.html`; (2) enable
+Pages on the repo (a GitHub *setting*, not committed — source = `main`, folder =
+`/site`); (3) fill `privacy_policies` in `manifest.json` (currently `[]`) with the
+resulting URL. No engineering dependency.
 
-### 5.5 Cold-user install trial ⬜
+### 5.5 Cold-user install trial ⬜ (needs a provisioned box + a real tester)
 A real never-seen-it person installs and uses it. Depends on 5.0 (final names in
-docs) and 5.2 (breadth, so the claim is honest). This IS the exit criterion "a
-stranger can install without asking questions."
+docs — done) and 5.2 (breadth, so the claim is honest — code-complete). This IS
+the exit criterion "a stranger can install without asking questions." Planned as
+a separate session with a genuine Linux box and a genuine first-time tester.
 
 ### 5.6 Directory submission ⬜
 The convergence point. Depends on 5.0, 5.2, 5.3, 5.4, 5.5, plus accurate
 README / changelog / versioning.
+
+---
+
+### Phase 5 status pass (2026-07-29)
+
+The line that matters: **everything that is code is done and verified live.**
+What's left is not engineering — it's an asset, a hosting choice, and access to a
+machine and a stranger.
+
+**✅ Genuinely done — code-complete AND verified live:**
+- **5.0 rename** (0.5.0) — 13 semantic names, cross-file consistency + over-the-wire
+  `tools/list` gates, now permanent CI tests.
+- **5.1 Claude Code profile** (0.5.2) — `clientInfo` logged for diagnostics only,
+  never gates the sandbox; all 13 tools kept; descriptions state the
+  container-vs-host boundary. Plus `millwright_version` on every result (0.5.1).
+- **5.2 breadth, Approach A** (0.5.3 + 0.5.4) — the honest, container-provable part
+  of breadth: native-Linux non-WSL code paths + sandbox behaviour exercised on a
+  real root Docker daemon in CI, and the **entire root-ownership class closed on
+  all four instances** (build artifacts, native-Linux files, WSL-path files,
+  Windows-host files), each guarded by the permanent `ownership` scenario. Windows
+  fail-closed proven live in the installed Desktop extension.
+
+**🟡 Substance-done, provisioning-deferred — the code is proven as far as a
+container can prove it; the rest needs real hardware, and is deliberately NOT
+ticked:**
+- **5.2 breadth, the machine-dependent tail.** Three honest ⬜s remain and are
+  unchanged: **Desktop-install UX on a real native-Linux box** (Approach C, drags
+  in Claude-Desktop-for-Linux maturity as its own variable); **a true
+  Windows-without-WSL host** (the config-unset test only *simulates* config-level
+  absence — the box still has WSL); **host-side ROS introspection on native Linux**
+  (still Lyrical-only, accepted). None is a code gap; each needs a provisioned box.
+
+**⬜ Untouched — blocked on a non-code input, not on engineering:**
+- **5.3 icon** — needs a design asset (direction chosen, being produced separately).
+- **5.4 privacy URL** — approach chosen (GitHub Pages, dedicated `/site`;
+  `site/index.html` scaffolded with placeholder text). Remaining: real policy
+  text, enable Pages (a repo setting), fill the manifest `privacy_policies` URL.
+- **5.5 cold trial** — needs a real box + a real first-time tester.
+- **5.6 submission** — the convergence point; waits on 5.3–5.5.
+
+**Verdict:** Phase 5's engineering is finished. The phase does not *close* until
+the cold trial (5.5) actually happens and submission (5.6) is accepted — those are
+its exit criteria, and neither can be self-certified by the author. Nothing left
+on the critical path is code; the shortest path to "done" runs through a
+provisioned machine and a stranger, not another commit.
 
 **Sequencing warning (don't fool yourself):** icon (5.3) and privacy-URL (5.4)
 are the easy, visible tasks — doing them first manufactures the *illusion* of
