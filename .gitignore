@@ -7,3 +7,4 @@ patch-sandbox.txt
 
 # Windows alternate-data-stream junk (downloaded-file markers)
 *:Zone.Identifier
+guard-fixtures/
