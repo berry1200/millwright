@@ -33,7 +33,7 @@ This checklist is written for a machine set up like the author's:
 - **Windows 11**, with **WSL2** and a Linux distribution installed (e.g. Ubuntu)
 - **Docker Desktop** installed
 - **Claude Desktop** installed
-- A copy of the **`millwright-0.5.4.mcpb`** file (the extension bundle)
+- A copy of the **`millwright-0.5.5.mcpb`** file (the extension bundle)
 
 If your setup differs (native Linux, or Windows without WSL), this trial doesn't
 apply cleanly — tell the person who gave you the file; that's a different,
@@ -99,7 +99,7 @@ Note its two addresses — you'll need both:
 
 1. Open **Claude Desktop**.
 2. **Settings → Extensions → Advanced settings → Install Extension…**
-3. Pick the **`millwright-0.5.4.mcpb`** file.
+3. Pick the **`millwright-0.5.5.mcpb`** file.
    (Don't double-click the `.mcpb` in File Explorer — on Windows it often has no
    file association and nothing happens. Install it from inside Claude Desktop.)
 4. The install dialog asks for settings. Fill in:
@@ -136,7 +136,7 @@ result. It's JSON that begins like this:
 
 ```json
 {
-  "millwright_version": "0.5.4",
+  "millwright_version": "0.5.5",
   "blocked": false,
   "sandboxed": true,
   "exitCode": 0,
@@ -145,7 +145,7 @@ result. It's JSON that begins like this:
 }
 ```
 
-**Pass:** the very first field is `"millwright_version": "0.5.4"`.
+**Pass:** the very first field is `"millwright_version": "0.5.5"`.
 **Fail — wrong version:** if it's any other version, an *older* process is still
 running. Fully quit Claude Desktop and reopen, then retry.
 **Fail — sandbox not available:** if instead you see
@@ -177,7 +177,7 @@ Expand the tool call. Expected raw result:
 
 ```json
 {
-  "millwright_version": "0.5.4",
+  "millwright_version": "0.5.5",
   "blocked": false,
   "sandboxed": true,
   "exitCode": 0,
@@ -208,7 +208,7 @@ Expand the tool call. Expected raw result:
 
 ```json
 {
-  "millwright_version": "0.5.4",
+  "millwright_version": "0.5.5",
   "applied": true,
   "path": "\\\\wsl.localhost\\<distro>\\home\\<you>\\millwright-trial\\trial.txt",
   "resolved_path": "\\\\wsl.localhost\\<distro>\\home\\<you>\\millwright-trial\\trial.txt",
@@ -254,7 +254,7 @@ Expand the tool call.
 
 ```json
 {
-  "millwright_version": "0.5.4",
+  "millwright_version": "0.5.5",
   "available": true,
   "nodes": ["/some_node", "..."]
 }
@@ -268,7 +268,7 @@ graceful decline — **not** a crash:
 
 ```json
 {
-  "millwright_version": "0.5.4",
+  "millwright_version": "0.5.5",
   "available": false,
   "message": "ros2 CLI not found. Either start this server from a ROS-sourced shell, or set the ros_setup_script setting ..."
 }
@@ -303,7 +303,7 @@ Copy back the raw result JSON from **Part 3** and each of **Actions 1–3**, plu
 | Step | Pass looks like |
 |---|---|
 | 1.2 Docker | `docker ps` in your distro prints a table header |
-| 3 Version | first field is `"millwright_version": "0.5.4"` |
+| 3 Version | first field is `"millwright_version": "0.5.5"` |
 | Action 1 | `"sandboxed": true`, `exitCode 0`, file owned by `<you>` not `root` |
 | Action 2 | `"applied": true`, `"replacements": 1`, `resolved_path` = your file |
 | Action 3 | `available:true` with a `nodes` list **or** `available:false` with a message |
