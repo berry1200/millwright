@@ -666,9 +666,21 @@ The .mcpb installs and runs, but do NOT hand this to strangers yet:
 4. ~~No LICENSE~~ **FIXED 2026-07-18**: Apache-2.0 (chosen over MIT for
    the explicit patent grant + automatic contribution licensing, §5);
    LICENSE file + `license` field in manifest and package.json.
-5. **`privacy_policies` needs a public URL for directory review** — the
-   policy text lives in README (good) but there's no public repo/site to
-   host it; directory submission requires a real URL. STILL OPEN.
+5. ~~`privacy_policies` needs a public URL for directory review~~ **RESOLVED
+   2026-07-30**: the policy is hosted on **GitHub Pages from an orphan
+   `gh-pages` branch that contains ONLY `index.html`**, served at
+   `https://berry1200.github.io/millwright/`; `manifest.privacy_policies` points
+   at that URL as of 0.5.5.
+   **Branch strategy (documented so it isn't confusing later):** the policy
+   deliberately does NOT live in `/site` on `main` (the original plan). GitHub
+   Pages' "deploy from a branch" mode can only target `/ (root)` or `/docs`, so a
+   dedicated `/site` folder isn't selectable; and publishing from `main` root or
+   `/docs` would expose this repo's internal `/docs` (phase notes, INCIDENT
+   records, memory). An orphan `gh-pages` branch holding a single `index.html`
+   sidesteps both: only that one file is ever public, `main` is untouched. **Edit
+   the policy by committing `index.html` on `gh-pages` — `main` never carries
+   it.** (The stray `site/index.html` placeholder from the abandoned plan was
+   removed from `main`.)
 6. ~~No tool annotations~~ **FIXED 2026-07-18**: all 13 tools carry
    explicit `title`/`readOnlyHint`/`destructiveHint`/`idempotentHint`/
    `openWorldHint` (all four set explicitly because spec defaults are

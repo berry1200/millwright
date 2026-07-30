@@ -351,15 +351,19 @@ Icon at all required sizes. Required for directory submission. Direction chosen
 (monoline node-chevron); to be produced in Claude Design as a separate,
 non-code task. No engineering dependency — does not block anything else.
 
-### 5.4 Hosted privacy-policy URL — parallel track ⬜ (approach chosen, not yet live)
-Required for directory review. **Approach chosen: GitHub Pages from a dedicated
-`/site` folder** (kept separate from `/docs` so the internal phase notes, incident
-records, and memory never get published). `site/index.html` is scaffolded with
-**placeholder** text (commit `96b17b6`, 2026-07-29). Remaining, all
-non-engineering: (1) write the real policy text into `site/index.html`; (2) enable
-Pages on the repo (a GitHub *setting*, not committed — source = `main`, folder =
-`/site`); (3) fill `privacy_policies` in `manifest.json` (currently `[]`) with the
-resulting URL. No engineering dependency.
+### 5.4 Hosted privacy-policy URL — parallel track 🟡 (wired; pending Pages-enable + final text)
+Required for directory review. **Approach: GitHub Pages from an orphan `gh-pages`
+branch containing only `index.html`**, served at
+`https://berry1200.github.io/millwright/`. (Chosen over a `/site` folder on `main`
+because Pages' branch-deploy can only target `/ (root)` or `/docs` — a dedicated
+subfolder isn't selectable — and an orphan branch keeps `main`'s `/docs` (phase
+notes, incident records, memory) unpublished. See CLAUDE.md distribution-readiness
+#5 for the full branch-strategy note.) **Done:** `manifest.privacy_policies` points
+at the URL (0.5.5); the abandoned `site/` placeholder removed from `main`.
+**Remaining, both non-engineering and user-side:** (1) replace the placeholder
+`index.html` on `gh-pages` with the full policy text; (2) enable Pages in the repo
+settings (Source = branch `gh-pages`, `/ (root)`) so the URL resolves. Goes ✅ once
+the live URL loads the real policy.
 
 ### 5.5 Cold-user install trial ⬜ (needs a provisioned box + a real tester)
 A real never-seen-it person installs and uses it. Depends on 5.0 (final names in
@@ -404,9 +408,10 @@ ticked:**
 
 **⬜ Untouched — blocked on a non-code input, not on engineering:**
 - **5.3 icon** — needs a design asset (direction chosen, being produced separately).
-- **5.4 privacy URL** — approach chosen (GitHub Pages, dedicated `/site`;
-  `site/index.html` scaffolded with placeholder text). Remaining: real policy
-  text, enable Pages (a repo setting), fill the manifest `privacy_policies` URL.
+- **5.4 privacy URL** — 🟡 wired: hosted on an orphan `gh-pages` branch
+  (`https://berry1200.github.io/millwright/`), `manifest.privacy_policies` filled
+  (0.5.5). Remaining (user-side): swap the placeholder for the full policy text and
+  enable Pages so the URL resolves.
 - **5.5 cold trial** — needs a real box + a real first-time tester.
 - **5.6 submission** — the convergence point; waits on 5.3–5.5.
 

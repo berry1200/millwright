@@ -21,7 +21,7 @@ import {
   buildRosWorkspace,
 } from "./ros-tools.js";
 
-export const VERSION = "0.5.4";
+export const VERSION = "0.5.5";
 
 /** Wrap a tool payload as an MCP text result, prefixed with millwright_version
  * so a stale server is caught on the FIRST call in ANY client. The stderr
